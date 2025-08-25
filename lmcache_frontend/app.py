@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 import argparse
+import asyncio
 import json
 import os
 from urllib.parse import unquote
@@ -182,6 +183,57 @@ async def serve_frontend():
     except Exception:
         # Development environment uses local files
         return FileResponse("static/index.html")
+
+
+# Helper function to fetch metrics from a single node
+async def _fetch_node_metrics(node):
+    """Fetch metrics from a single node"""
+    try:
+        # Check if port is a socket path
+        is_socket_path = "/" in node["port"]
+
+        if is_socket_path:
+            # Use UDS transport for socket paths
+            transport = httpx.AsyncHTTPTransport(uds=node["port"])
+            # Use localhost as host
+            url = "http://localhost/metrics"
+            async with httpx.AsyncClient(transport=transport, timeout=5.0) as client:
+                response = await client.get(url)
+                response.raise_for_status()
+                return response.text
+        else:
+            # Build URL for regular port
+            url = f"http://{node['host']}:{node['port']}/metrics"
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                response = await client.get(url)
+                response.raise_for_status()
+                return response.text
+    except Exception as e:
+        return f"# ERROR: Failed to get metrics from {node['name']}: {str(e)}\n"
+
+
+@router.get("/metrics")
+async def aggregated_metrics():
+    """Aggregate metrics from all nodes"""
+    if not target_nodes:
+        return PlainTextResponse("# No nodes configured\n", status_code=404)
+
+    # Fetch metrics from all nodes concurrently
+    metrics_results = await asyncio.gather(
+        *[_fetch_node_metrics(node) for node in target_nodes]
+    )
+
+    # Combine all metrics with node name as comment header
+    aggregated = ""
+    for i, metrics in enumerate(metrics_results):
+        node = target_nodes[i]
+        aggregated += (
+            f"# Metrics from node: {node['name']} ({node['host']}:{node['port']})\n"
+        )
+        aggregated += metrics
+        aggregated += "\n\n"
+
+    return PlainTextResponse(aggregated)
 
 
 def create_app():
