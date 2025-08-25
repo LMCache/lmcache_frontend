@@ -1,0 +1,46 @@
+body {
+    background-color: #f8f9fa;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+header {
+    border-radius: 0 0 10px 10px;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+
+#currentNode {
+    padding: 10px 15px;
+    border-radius: 5px;
+}
+
+.tab-content {
+    background-color: white;
+    border-radius: 0 0 10px 10px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    min-height: 400px;
+}
+
+pre {
+    background-color: #f8f9fa;
+    padding: 15px;
+    border-radius: 5px;
+    max-height: 500px;
+    overflow: auto;
+}
+
+.card {
+    margin-top: 20px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+#logLevelContent {
+    min-height: 200px;
+}
+
+#loggerSelector {
+    margin-bottom: 15px;
+}
+
+#setLogLevelBtn {
+    margin-top: 10px;
+}

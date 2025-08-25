@@ -1,0 +1,3 @@
+[tool.codespell]
+ignore-words-list = "te"
+skip = "*.pyc,*.so,*.dll,*.exe,*.png,*.jpg,*.gif,*.pdf,.idea/**"
