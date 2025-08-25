@@ -67,6 +67,61 @@ async def get_nodes():
     return {"nodes": target_nodes}
 
 
+# ==== Node Management Endpoints ====
+@router.post("/api/nodes")
+async def add_node(request: Request):
+    """Add a new node to the target list"""
+    global target_nodes
+    try:
+        new_node = await request.json()
+        if not validate_node(new_node):
+            raise HTTPException(status_code=400, detail="Invalid node format")
+
+        # Check for duplicate
+        if any(node["name"] == new_node["name"] for node in target_nodes):
+            raise HTTPException(status_code=409, detail="Node name already exists")
+
+        target_nodes.append(new_node)
+        return {"status": "success", "message": "Node added"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/api/nodes/{node_name}")
+async def update_node(node_name: str, request: Request):
+    """Update an existing node"""
+    global target_nodes
+    try:
+        updated_node = await request.json()
+        if not validate_node(updated_node):
+            raise HTTPException(status_code=400, detail="Invalid node format")
+
+        for i, node in enumerate(target_nodes):
+            if node["name"] == node_name:
+                target_nodes[i] = updated_node
+                return {"status": "success", "message": "Node updated"}
+
+        raise HTTPException(status_code=404, detail="Node not found")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/api/nodes/{node_name}")
+async def delete_node(node_name: str):
+    """Delete a node from the target list"""
+    global target_nodes
+    try:
+        original_count = len(target_nodes)
+        target_nodes = [node for node in target_nodes if node["name"] != node_name]
+
+        if len(target_nodes) == original_count:
+            raise HTTPException(status_code=404, detail="Node not found")
+
+        return {"status": "success", "message": "Node deleted"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.api_route(
     "/proxy/{target_host}/{target_port_or_socket}/{path:path}",
     methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"],
