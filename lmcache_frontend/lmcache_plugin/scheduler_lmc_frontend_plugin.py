@@ -40,7 +40,7 @@ print(f"Config: {config}")
 
 nodes = get_all_server_infos(config, worker_count)
 port = config.extra_config.get(
-    "plugin.extra_config.frontend.port", os.getenv("LMCACHE_FRONTEND_PORT")
+    "plugin.frontend.port", os.getenv("LMCACHE_FRONTEND_PORT")
 )
 
 sys.argv = [
