@@ -69,6 +69,31 @@ async def get_nodes():
 
 
 @router.api_route(
+    "/proxy2/{node_name}/{path:path}",
+    methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"],
+)
+async def proxy_request_by_name(
+    request: Request, node_name: str, path: str
+):
+    """Proxy requests using node name as identifier"""
+    # Find node by name
+    node = next((n for n in target_nodes if n["name"] == node_name), None)
+    if not node:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Node with name '{node_name}' not found"
+        )
+
+    # Use existing proxy_request logic
+    return await proxy_request(
+        request,
+        target_host=node["host"],
+        target_port_or_socket=node["port"],
+        path=path
+    )
+
+
+@router.api_route(
     "/proxy/{target_host}/{target_port_or_socket}/{path:path}",
     methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"],
 )
