@@ -34,6 +34,13 @@ window.addEventListener('DOMContentLoaded', () => {
 
     // Set log level button
     document.getElementById('setLogLevelBtn').addEventListener('click', setLogLevel);
+
+    // Node management buttons
+    document.getElementById('addNodeBtn').addEventListener('click', addNode);
+    document.getElementById('updateNodeBtn').addEventListener('click', updateNode);
+
+    // Load node management list
+    loadNodeListForManagement();
 });
 
 // Load node list
@@ -56,6 +63,159 @@ async function loadNodes() {
     }
 }
 
+// ==== Node Management Functions ====
+async function loadNodeListForManagement() {
+    try {
+        const response = await fetch('/api/nodes');
+        const data = await response.json();
+        
+        const tableBody = document.getElementById('nodeListBody');
+        tableBody.innerHTML = '';
+        
+        data.nodes.forEach(node => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${node.name}</td>
+                <td>${node.host}</td>
+                <td>${node.port}</td>
+                <td>
+                    <button class="btn btn-sm btn-warning edit-node me-1" data-name="${node.name}">Edit</button>
+                    <button class="btn btn-sm btn-danger delete-node" data-name="${node.name}">Delete</button>
+                </td>
+            `;
+            tableBody.appendChild(row);
+        });
+        
+        // Add event listeners to edit/delete buttons
+        document.querySelectorAll('.edit-node').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const nodeName = e.target.dataset.name;
+                const node = data.nodes.find(n => n.name === nodeName);
+                if (node) {
+                    document.getElementById('nodeName').value = node.name;
+                    document.getElementById('nodeHost').value = node.host;
+                    document.getElementById('nodePort').value = node.port;
+                }
+            });
+        });
+        
+        document.querySelectorAll('.delete-node').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const nodeName = e.target.dataset.name;
+                if (confirm(`Are you sure you want to delete node ${nodeName}?`)) {
+                    deleteNode(nodeName);
+                }
+            });
+        });
+        
+    } catch (error) {
+        console.error('Failed to load nodes for management:', error);
+        alert('Failed to load nodes: ' + error.message);
+    }
+}
+
+
+async function addNode() {
+    const name = document.getElementById('nodeName').value.trim();
+    const host = document.getElementById('nodeHost').value.trim();
+    const port = document.getElementById('nodePort').value.trim();
+    
+    if (!name || !host || !port) {
+        alert('Please fill all fields');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/nodes', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({name, host, port})
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.detail || 'Failed to add node');
+        }
+        
+        // Refresh UI
+        document.getElementById('nodeName').value = '';
+        document.getElementById('nodeHost').value = '';
+        document.getElementById('nodePort').value = '';
+        
+        loadNodeListForManagement();
+        loadNodes(); // Refresh node selector
+        
+        alert('Node added successfully');
+    } catch (error) {
+        console.error('Add node error:', error);
+        alert('Failed to add node: ' + error.message);
+    }
+}
+
+
+async function updateNode() {
+    const name = document.getElementById('nodeName').value.trim();
+    const host = document.getElementById('nodeHost').value.trim();
+    const port = document.getElementById('nodePort').value.trim();
+    
+    if (!name || !host || !port) {
+        alert('Please fill all fields');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/nodes/${encodeURIComponent(name)}`, {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({name, host, port})
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.detail || 'Failed to update node');
+        }
+        
+        // Refresh UI
+        loadNodeListForManagement();
+        loadNodes(); // Refresh node selector
+        
+        alert('Node updated successfully');
+    } catch (error) {
+        console.error('Update node error:', error);
+        alert('Failed to update node: ' + error.message);
+    }
+}
+
+
+async function deleteNode(nodeName) {
+    try {
+        const response = await fetch(`/api/nodes/${encodeURIComponent(nodeName)}`, {
+            method: 'DELETE'
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.detail || 'Failed to delete node');
+        }
+        
+        // Refresh UI
+        loadNodeListForManagement();
+        loadNodes(); // Refresh node selector
+        
+        // Clear form if deleting the currently edited node
+        if (document.getElementById('nodeName').value === nodeName) {
+            document.getElementById('nodeName').value = '';
+            document.getElementById('nodeHost').value = '';
+            document.getElementById('nodePort').value = '';
+        }
+        
+        alert('Node deleted successfully');
+    } catch (error) {
+        console.error('Delete node error:', error);
+        alert('Failed to delete node: ' + error.message);
+    }
+}
+
 // Refresh active tab
 function refreshActiveTab() {
     const activeTab = document.querySelector('.tab-pane.active');
@@ -73,6 +233,9 @@ function refreshActiveTab() {
             break;
         case 'loglevel':
             loadLogLevel();
+            break;
+        case 'node-management':
+            loadNodeListForManagement();
             break;
     }
 }
