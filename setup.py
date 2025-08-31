@@ -18,7 +18,7 @@ static_files = package_files("lmcache_frontend/")
 
 setup(
     name="lmcache_frontend",
-    version="0.1.1",
+    version="0.1.3",
     packages=find_packages(),
     include_package_data=True,
     package_data={

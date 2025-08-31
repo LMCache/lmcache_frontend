@@ -249,7 +249,7 @@ async function loadOverview() {
 
     try {
         // Encode socket path if needed
-        // 对端口或socket路径进行双重编码
+        // Use double encodeURIComponent for path
         const portOrSocket = encodeURIComponent(encodeURIComponent(currentNode.port));
         const response = await fetch(`/proxy/${currentNode.host}/${portOrSocket}/version`);
         const versionInfo = await response.text();
