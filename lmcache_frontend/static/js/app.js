@@ -248,10 +248,7 @@ async function loadOverview() {
     contentDiv.innerHTML = '<div class="spinner-border" role="status"><span class="visually-hidden">Loading...</span></div>';
 
     try {
-        // Encode socket path if needed
-        // Use double encodeURIComponent for path
-        const portOrSocket = encodeURIComponent(encodeURIComponent(currentNode.port));
-        const response = await fetch(`/proxy/${currentNode.host}/${portOrSocket}/version`);
+        const response = await fetch(`/proxy2/${encodeURIComponent(currentNode.name)}/version`);
         const versionInfo = await response.text();
 
         contentDiv.innerHTML = `
@@ -283,9 +280,7 @@ async function loadMetrics() {
     contentDiv.textContent = 'Loading...';
 
     try {
-        // Encode socket path if needed
-        const portOrSocket = encodeURIComponent(encodeURIComponent(currentNode.port));
-        const response = await fetch(`/proxy/${currentNode.host}/${portOrSocket}/metrics`);
+        const response = await fetch(`/proxy2/${encodeURIComponent(currentNode.name)}/metrics`);
         const metrics = await response.text();
         contentDiv.textContent = metrics;
     } catch (error) {
@@ -300,9 +295,7 @@ async function loadThreads() {
     contentDiv.textContent = 'Loading...';
 
     try {
-        // Encode socket path if needed
-        const portOrSocket = encodeURIComponent(encodeURIComponent(currentNode.port));
-        const response = await fetch(`/proxy/${currentNode.host}/${portOrSocket}/threads`);
+        const response = await fetch(`/proxy2/${encodeURIComponent(currentNode.name)}/threads`);
         const threads = await response.text();
         contentDiv.textContent = threads;
     } catch (error) {
@@ -321,9 +314,7 @@ async function loadLogLevel() {
     loggerInput.value = '';
 
     try {
-        // Encode socket path if needed
-        const portOrSocket = encodeURIComponent(encodeURIComponent(currentNode.port));
-        const response = await fetch(`/proxy/${currentNode.host}/${portOrSocket}/loglevel`);
+        const response = await fetch(`/proxy2/${encodeURIComponent(currentNode.name)}/loglevel`);
 
         const text = await response.text();
 
@@ -350,7 +341,7 @@ async function setLogLevel() {
 
         if (!level) {
             // Read log level if no level is selected
-            url = `/proxy/${currentNode.host}/${portOrSocket}/loglevel`;
+            url = `/proxy2/${encodeURIComponent(currentNode.name)}/loglevel`;
             if (loggerName) {
                 url += `?logger_name=${encodeURIComponent(loggerName)}`;
             }
@@ -363,7 +354,7 @@ async function setLogLevel() {
                 alert('Please enter a Logger name');
                 return;
             }
-            url = `/proxy/${currentNode.host}/${portOrSocket}/loglevel?logger_name=${encodeURIComponent(loggerName)}&level=${level}`;
+            url = `/proxy2/${encodeURIComponent(currentNode.name)}/loglevel?logger_name=${encodeURIComponent(loggerName)}&level=${level}`;
             const response = await fetch(url, { method: 'GET' });
 
             const text = await response.text();
