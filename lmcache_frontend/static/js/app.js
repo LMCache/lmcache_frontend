@@ -1,6 +1,6 @@
 // Global variables
 let currentNode = null;
-
+let proxyNodes = {};
 // Initialize after DOM is loaded
 window.addEventListener('DOMContentLoaded', () => {
     // Initialize node selector
@@ -52,11 +52,17 @@ async function loadNodes() {
         const selector = document.getElementById('nodeSelector');
         selector.innerHTML = '<option value="">-- Select Target Node --</option>';
 
+        proxyNodes = {};
+        
         data.nodes.forEach(node => {
             const option = document.createElement('option');
             option.value = JSON.stringify(node);
             option.textContent = `${node.name} (${node.host}:${node.port})`;
             selector.appendChild(option);
+
+            if (node.is_proxy) {
+                proxyNodes[node.name] = node;
+            }
         });
     } catch (error) {
         console.error('Failed to load nodes:', error);
@@ -78,6 +84,8 @@ async function loadNodeListForManagement() {
                 <td>${node.name}</td>
                 <td>${node.host}</td>
                 <td>${node.port}</td>
+                <td>${node.is_proxy ? 'Yes' : 'No'}</td>
+                <td>${node.proxy_id || '-'}</td>
                 <td>
                     <button class="btn btn-sm btn-warning edit-node me-1" data-name="${node.name}">Edit</button>
                     <button class="btn btn-sm btn-danger delete-node" data-name="${node.name}">Delete</button>
@@ -95,6 +103,10 @@ async function loadNodeListForManagement() {
                     document.getElementById('nodeName').value = node.name;
                     document.getElementById('nodeHost').value = node.host;
                     document.getElementById('nodePort').value = node.port;
+                    
+                    // Auto-set proxy fields
+                    document.getElementById('isProxyCheck').checked = node.is_proxy || false;
+                    document.getElementById('proxyIdInput').value = node.proxy_id || '';
                 }
             });
         });
@@ -119,6 +131,8 @@ async function addNode() {
     const name = document.getElementById('nodeName').value.trim();
     const host = document.getElementById('nodeHost').value.trim();
     const port = document.getElementById('nodePort').value.trim();
+    const isProxy = document.getElementById('isProxyCheck').checked;
+    const proxyId = document.getElementById('proxyIdInput').value.trim();
     
     if (!name || !host || !port) {
         alert('Please fill all fields');
@@ -129,7 +143,13 @@ async function addNode() {
         const response = await fetch('/api/nodes', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({name, host, port})
+            body: JSON.stringify({
+                name, 
+                host, 
+                port,
+                is_proxy: isProxy,
+                proxy_id: proxyId || null
+            })
         });
         
         if (!response.ok) {
@@ -157,6 +177,8 @@ async function updateNode() {
     const name = document.getElementById('nodeName').value.trim();
     const host = document.getElementById('nodeHost').value.trim();
     const port = document.getElementById('nodePort').value.trim();
+    const isProxy = document.getElementById('isProxyCheck').checked;
+    const proxyId = document.getElementById('proxyIdInput').value.trim();
     
     if (!name || !host || !port) {
         alert('Please fill all fields');
@@ -167,7 +189,13 @@ async function updateNode() {
         const response = await fetch(`/api/nodes/${encodeURIComponent(name)}`, {
             method: 'PUT',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({name, host, port})
+            body: JSON.stringify({
+                name, 
+                host, 
+                port,
+                is_proxy: isProxy,
+                proxy_id: proxyId || null
+            })
         });
         
         if (!response.ok) {
@@ -248,10 +276,7 @@ async function loadOverview() {
     contentDiv.innerHTML = '<div class="spinner-border" role="status"><span class="visually-hidden">Loading...</span></div>';
 
     try {
-        // Encode socket path if needed
-        // Use double encodeURIComponent for path
-        const portOrSocket = encodeURIComponent(encodeURIComponent(currentNode.port));
-        const response = await fetch(`/proxy/${currentNode.host}/${portOrSocket}/version`);
+        const response = await fetch(transformPath('version'));
         const versionInfo = await response.text();
 
         contentDiv.innerHTML = `
@@ -283,9 +308,7 @@ async function loadMetrics() {
     contentDiv.textContent = 'Loading...';
 
     try {
-        // Encode socket path if needed
-        const portOrSocket = encodeURIComponent(encodeURIComponent(currentNode.port));
-        const response = await fetch(`/proxy/${currentNode.host}/${portOrSocket}/metrics`);
+        const response = await fetch(transformPath('metrics'));
         const metrics = await response.text();
         contentDiv.textContent = metrics;
     } catch (error) {
@@ -300,9 +323,7 @@ async function loadThreads() {
     contentDiv.textContent = 'Loading...';
 
     try {
-        // Encode socket path if needed
-        const portOrSocket = encodeURIComponent(encodeURIComponent(currentNode.port));
-        const response = await fetch(`/proxy/${currentNode.host}/${portOrSocket}/threads`);
+        const response = await fetch(transformPath('threads'));
         const threads = await response.text();
         contentDiv.textContent = threads;
     } catch (error) {
@@ -321,9 +342,7 @@ async function loadLogLevel() {
     loggerInput.value = '';
 
     try {
-        // Encode socket path if needed
-        const portOrSocket = encodeURIComponent(encodeURIComponent(currentNode.port));
-        const response = await fetch(`/proxy/${currentNode.host}/${portOrSocket}/loglevel`);
+        const response = await fetch(transformPath('loglevel'));
 
         const text = await response.text();
 
@@ -350,7 +369,7 @@ async function setLogLevel() {
 
         if (!level) {
             // Read log level if no level is selected
-            url = `/proxy/${currentNode.host}/${portOrSocket}/loglevel`;
+            url = transformPath('loglevel');
             if (loggerName) {
                 url += `?logger_name=${encodeURIComponent(loggerName)}`;
             }
@@ -363,7 +382,8 @@ async function setLogLevel() {
                 alert('Please enter a Logger name');
                 return;
             }
-            url = `/proxy/${currentNode.host}/${portOrSocket}/loglevel?logger_name=${encodeURIComponent(loggerName)}&level=${level}`;
+            url = transformPath('loglevel');
+            url += `?logger_name=${encodeURIComponent(loggerName)}&level=${level}`;
             const response = await fetch(url, { method: 'GET' });
 
             const text = await response.text();
@@ -385,4 +405,16 @@ function clearAllTabs() {
     document.getElementById('threadsContent').textContent = 'Please select a target node first';
     document.getElementById('logLevelContent').textContent = 'Please select a target node first';
     document.getElementById('loggerInput').value = '';
+}
+
+function transformPath(path) {
+    if (!currentNode) return path;
+    
+    if (currentNode.proxy_id && proxyNodes[currentNode.proxy_id]) {
+        const proxyNode = proxyNodes[currentNode.proxy_id];
+        return `/proxy2/${proxyNode.name}/proxy2/${currentNode.name}/${path}`;
+    }
+
+    const portOrSocket = encodeURIComponent(encodeURIComponent(currentNode.port));
+    return `/proxy2/${currentNode.name}/${path}`;
 }
