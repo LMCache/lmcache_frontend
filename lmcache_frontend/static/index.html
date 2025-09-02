@@ -106,6 +106,14 @@
                             <label for="nodePort" class="form-label">Port/Socket Path</label>
                             <input type="text" class="form-control" id="nodePort" placeholder="Port number or socket path">
                         </div>
+                        <div class="mb-3 form-check">
+                            <input type="checkbox" class="form-check-input" id="isProxyCheck">
+                            <label class="form-check-label" for="isProxyCheck">Is Proxy Node</label>
+                        </div>
+                        <div class="mb-3">
+                            <label for="proxyIdInput" class="form-label">Proxy ID (if this node needs proxy)</label>
+                            <input type="text" class="form-control" id="proxyIdInput" placeholder="Enter proxy node name">
+                        </div>
                         <button id="addNodeBtn" class="btn btn-primary me-2">Add Node</button>
                         <button id="updateNodeBtn" class="btn btn-warning me-2">Update Node</button>
                     </div>

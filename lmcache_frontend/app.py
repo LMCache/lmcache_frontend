@@ -51,6 +51,14 @@ def validate_node(node):
     required_keys = {"name", "host", "port"}
     if not required_keys.issubset(node.keys()):
         return False
+
+    if "proxy_id" in node and node["proxy_id"]:
+        if not isinstance(node["proxy_id"], str):
+            return False
+
+    if "is_proxy" in node and not isinstance(node["is_proxy"], bool):
+        return False
+
     return True
 
 
@@ -127,24 +135,18 @@ async def delete_node(node_name: str):
     "/proxy2/{node_name}/{path:path}",
     methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"],
 )
-async def proxy_request_by_name(
-    request: Request, node_name: str, path: str
-):
+async def proxy_request_by_name(request: Request, node_name: str, path: str):
     """Proxy requests using node name as identifier"""
     # Find node by name
     node = next((n for n in target_nodes if n["name"] == node_name), None)
     if not node:
         raise HTTPException(
-            status_code=404,
-            detail=f"Node with name '{node_name}' not found"
+            status_code=404, detail=f"Node with name '{node_name}' not found"
         )
 
     # Use existing proxy_request logic
     return await proxy_request(
-        request,
-        target_host=node["host"],
-        target_port_or_socket=node["port"],
-        path=path
+        request, target_host=node["host"], target_port_or_socket=node["port"], path=path
     )
 
 
