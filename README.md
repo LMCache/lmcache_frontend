@@ -21,9 +21,12 @@ git clone https://github.com/your-org/lmcache_frontend.git
 cd lmcache_frontend
 ```
 
-2. Install dependencies:
+2. Install:
 ```bash
+# Install source
 pip install -e .
+# install from pypi
+pip install lmcache_frontend
 ```
 
 ## Usage
@@ -64,7 +67,7 @@ extra_config:
   plugin.frontend.port: 8080
 internal_api_server_enabled: True
 internal_api_server_port_start: 9090
-plugin_locs: ["/scripts/scheduler_lmc_frontend_plugin.py"]
+plugin_locations: ["/scripts/scheduler_lmc_frontend_plugin.py"]
 internal_api_server_socket_path_prefix: "/tmp/lmcache_internal_api_server/socket"
 ```
 
@@ -103,7 +106,7 @@ pre-commit run --all-files
 lmcache_frontend/
 ├── app.py               # Main application
 ├── lmcache_plugin/
-│   └── scheduler_lmc_frontend_plugin.py  # Plugin integration
+│   └── scheduler_lmc_frontend_plugin.py  # lmcache plugin integration
 ├── static/              # Web assets
 └── __init__.py
 ```
@@ -111,6 +114,7 @@ lmcache_frontend/
 ### Building the Package
 ```bash
 python setup.py sdist bdist_wheel
+twine upload dist/*
 ```
 
 ## License
