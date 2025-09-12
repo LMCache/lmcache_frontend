@@ -273,10 +273,10 @@ async def start_heartbeat_api(request: Request):
         heartbeat_url = data.get("heartbeat_url")
         initial_delay = data.get("initial_delay", 0)
         interval = data.get("interval", 30)
-        
+
         if not heartbeat_url:
             raise HTTPException(status_code=400, detail="heartbeat_url is required")
-        
+
         heartbeat_service.start(heartbeat_url, initial_delay, interval)
         return {"status": "success", "message": "Heartbeat service started"}
     except Exception as e:
@@ -447,18 +447,16 @@ def main():
     if args.heartbeat_url:
         # Set application configuration for heartbeat service
         heartbeat_service.set_app_config(args.host, args.port, target_nodes)
-        
-        print(f"Starting heartbeat service...")
+
+        print("Starting heartbeat service...")
         print(f"Heartbeat URL: {args.heartbeat_url}")
         print(f"Initial delay: {args.heartbeat_initial_delay}s")
         print(f"Interval: {args.heartbeat_interval}s")
         print(f"API Address: http://{args.host}:{args.port}")
         print(f"Target nodes count: {len(target_nodes)}")
-        
+
         heartbeat_service.start(
-            args.heartbeat_url,
-            args.heartbeat_initial_delay,
-            args.heartbeat_interval
+            args.heartbeat_url, args.heartbeat_initial_delay, args.heartbeat_interval
         )
     else:
         print("Heartbeat URL not configured, heartbeat disabled")
