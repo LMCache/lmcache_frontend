@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
+
 import argparse
 import asyncio
 import json
@@ -12,11 +13,16 @@ from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from starlette.responses import FileResponse, PlainTextResponse
 
+from .heartbeat import HeartbeatService
+
 # Create router
 router = APIRouter()
 
 # Global variable to store target nodes
 target_nodes = []
+
+# Initialize heartbeat service with app context
+heartbeat_service: HeartbeatService = HeartbeatService()
 
 
 # Load configuration file
@@ -253,6 +259,40 @@ async def health_check():
     return {"status": "healthy", "service": "lmcache-monitor"}
 
 
+@router.get("/api/heartbeat/status")
+async def get_heartbeat_status():
+    """Get heartbeat status"""
+    return heartbeat_service.status()
+
+
+@router.post("/api/heartbeat/start")
+async def start_heartbeat_api(request: Request):
+    """Start heartbeat service"""
+    try:
+        data = await request.json()
+        heartbeat_url = data.get("heartbeat_url")
+        initial_delay = data.get("initial_delay", 0)
+        interval = data.get("interval", 30)
+
+        if not heartbeat_url:
+            raise HTTPException(status_code=400, detail="heartbeat_url is required")
+
+        heartbeat_service.start(heartbeat_url, initial_delay, interval)
+        return {"status": "success", "message": "Heartbeat service started"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/heartbeat/stop")
+async def stop_heartbeat_api():
+    """Stop heartbeat service"""
+    try:
+        heartbeat_service.stop()
+        return {"status": "success", "message": "Heartbeat service stopped"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/")
 async def serve_frontend():
     """Return the frontend homepage"""
@@ -359,6 +399,24 @@ def main():
         help="Directly specify target nodes as a JSON string. "
         'Example: \'[{"name":"node1","host":"127.0.0.1","port":8001}]\'',
     )
+    parser.add_argument(
+        "--heartbeat-url",
+        type=str,
+        default=None,
+        help="Heartbeat service URL, e.g.: http://example.com/heartbeat",
+    )
+    parser.add_argument(
+        "--heartbeat-initial-delay",
+        type=int,
+        default=0,
+        help="Initial delay before starting heartbeat (seconds), default 0",
+    )
+    parser.add_argument(
+        "--heartbeat-interval",
+        type=int,
+        default=30,
+        help="Heartbeat interval (seconds), default 30",
+    )
 
     args = parser.parse_args()
 
@@ -385,7 +443,30 @@ def main():
     print(f"Monitoring service running at http://{args.host}:{args.port}")
     print(f"Node management: http://{args.host}:{args.port}/static/index.html")
 
-    uvicorn.run(app, host=args.host, port=args.port)
+    # Start heartbeat service if URL is configured
+    if args.heartbeat_url:
+        # Set application configuration for heartbeat service
+        heartbeat_service.set_app_config(args.host, args.port, target_nodes)
+
+        print("Starting heartbeat service...")
+        print(f"Heartbeat URL: {args.heartbeat_url}")
+        print(f"Initial delay: {args.heartbeat_initial_delay}s")
+        print(f"Interval: {args.heartbeat_interval}s")
+        print(f"API Address: http://{args.host}:{args.port}")
+        print(f"Target nodes count: {len(target_nodes)}")
+
+        heartbeat_service.start(
+            args.heartbeat_url, args.heartbeat_initial_delay, args.heartbeat_interval
+        )
+    else:
+        print("Heartbeat URL not configured, heartbeat disabled")
+
+    try:
+        uvicorn.run(app, host=args.host, port=args.port)
+    finally:
+        # Stop heartbeat service when app closes
+        print("Shutting down application...")
+        heartbeat_service.stop()
 
 
 if __name__ == "__main__":
