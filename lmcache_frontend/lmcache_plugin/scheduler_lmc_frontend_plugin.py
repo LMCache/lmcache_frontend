@@ -46,10 +46,15 @@ port = config.extra_config.get(
 sys.argv = [
     sys.argv[0],
     "--port",
-    str(int(port) if port else 8000),
+    str(int(port)) if port is not None else "8000",
     "--host",
     "0.0.0.0",
 ]
+
+for key, value in config.extra_config.items():
+    if key.startswith("plugin.frontend."):
+        arg_name = "--" + key.replace("plugin.frontend.", "")
+        sys.argv.extend([arg_name, str(value)])
 if nodes:
     if isinstance(nodes, (list, dict)):
         nodes = json.dumps(nodes)
