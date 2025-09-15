@@ -13,19 +13,105 @@ from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from starlette.responses import FileResponse, PlainTextResponse
 
-from .heartbeat import HeartbeatService
+try:
+    from .heartbeat import HeartbeatService  # import as module
+except ImportError:
+    from heartbeat import HeartbeatService  # type: ignore  # import as script
+
 
 # Create router
 router = APIRouter()
 
-# Global variable to store target nodes
+# Global variable to store proxy nodes and their target nodes
+# Example structure:
+# [
+#     {
+#         "name": "proxy1",
+#         "host": "127.0.0.1",
+#         "port": "8001",
+#         "nodes": [
+#             {"name": "node1", "host": "127.0.0.1", "port": "8002"},
+#             {"name": "node2", "host": "127.0.0.1", "port": "8003"}
+#         ]
+#     }
+# ]
 target_nodes = []
 
 # Initialize heartbeat service with app context
 heartbeat_service: HeartbeatService = HeartbeatService()
 
+global args
+args = None
 
-# Load configuration file
+
+async def fetch_child_nodes_from_proxy(proxy_node):
+    """Fetch child nodes from proxy node"""
+    try:
+        url = f"http://{proxy_node['host']}:{proxy_node['port']}/api/nodes"
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            return_nodes = []
+            added_names = set()  # Track node names to avoid duplicates
+            nodes = response.json().get("nodes", [])
+
+            # Process each node: only add leaf nodes (nodes without children)
+            for node in nodes:
+                if node.get("children"):
+                    # If node has children, add only the children (leaf nodes)
+                    for child in node["children"]:
+                        # Skip if already added
+                        if child["name"] in added_names:
+                            continue
+                        child["proxy_id"] = proxy_node["name"]
+                        return_nodes.append(child)
+                        added_names.add(child["name"])
+                else:
+                    # Skip if already added
+                    if node["name"] in added_names:
+                        continue
+                    node["proxy_id"] = proxy_node["name"]
+                    return_nodes.append(node)
+                    added_names.add(node["name"])
+            return return_nodes
+    except Exception as e:
+        print(f"Failed to fetch nodes from proxy {proxy_node['name']}: {e}")
+        return []
+
+
+async def fetch_nodes_from_supplier(url):
+    """Fetch node information from node supplier"""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            data = response.json()
+
+            unique_nodes = set()
+            for api_address, info in data.get("processInfos", {}).items():
+                for entity in info.get("lmCacheInfoEntities", []):
+                    # Parse apiAddress to get host and port
+                    url = entity["apiAddress"]
+                    if url.startswith("http://"):
+                        url = url[7:]
+                    host, port = url.split(":")
+                    node_key = f"{host}:{port}"
+                    unique_nodes.add(node_key)
+
+            return [
+                {
+                    "name": f"proxy_{host_port.replace(':', '_')}",
+                    "host": host_port.split(":")[0],
+                    "port": host_port.split(":")[1],
+                    "nodes": [],
+                }
+                for host_port in unique_nodes
+            ]
+    except Exception as e:
+        print(f"Failed to fetch nodes from supplier: {e}")
+        return []
+
+
 def load_config(config_path=None):
     global target_nodes
     try:
@@ -49,7 +135,7 @@ def load_config(config_path=None):
         target_nodes = []
 
 
-def validate_node(node):
+def validate_node(node, is_proxy=False):
     """Validate a single node configuration"""
     if not isinstance(node, dict):
         return False
@@ -61,9 +147,6 @@ def validate_node(node):
     if "proxy_id" in node and node["proxy_id"]:
         if not isinstance(node["proxy_id"], str):
             return False
-
-    if "is_proxy" in node and not isinstance(node["is_proxy"], bool):
-        return False
 
     return True
 
@@ -77,27 +160,116 @@ def validate_nodes(nodes):
 
 
 @router.get("/api/nodes")
-async def get_nodes():
-    """Get all target nodes"""
-    return {"nodes": target_nodes}
+async def get_all_nodes():
+    """Get all nodes in tree structure (proxies with their child nodes)"""
+    all_nodes = []
+    for proxy in target_nodes:
+        # Create proxy node with children property
+        proxy_node = {
+            "id": f"proxy_{proxy['name']}",
+            "name": proxy["name"],
+            "host": proxy["host"],
+            "port": proxy["port"],
+            "is_proxy": True,
+            "children": [],
+        }
+
+        # Add child nodes
+        for node in proxy.get("nodes", []):
+            proxy_node["children"].append(
+                {
+                    "id": f"node_{node['name']}",
+                    "name": node["name"],
+                    "host": node["host"],
+                    "port": node["port"],
+                    "is_proxy": False,
+                    "proxy_id": proxy["name"],
+                }
+            )
+
+        all_nodes.append(proxy_node)
+
+    return {"nodes": all_nodes}
+
+
+@router.get("/api/proxies/{proxy_name}/refresh")
+async def refresh_proxy_nodes(proxy_name: str):
+    """Refresh child nodes of a proxy"""
+    proxy = next((p for p in target_nodes if p["name"] == proxy_name), None)
+    if not proxy:
+        raise HTTPException(status_code=404, detail="Proxy not found")
+
+    try:
+        child_nodes = await fetch_child_nodes_from_proxy(proxy)
+        proxy["nodes"] = child_nodes
+        return {"status": "success", "nodes": child_nodes}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/api/proxies")
+async def get_proxies():
+    """Get all proxy nodes (without child nodes)"""
+    proxies = [
+        {"name": proxy["name"], "host": proxy["host"], "port": proxy["port"]}
+        for proxy in target_nodes
+    ]
+    return {"proxies": proxies}
+
+
+@router.get("/api/proxies/{proxy_name}/nodes")
+async def get_proxy_nodes(proxy_name: str):
+    """Get all nodes under specified proxy"""
+    proxy = next((p for p in target_nodes if p["name"] == proxy_name), None)
+    if not proxy:
+        raise HTTPException(status_code=404, detail="Proxy not found")
+    return {"nodes": proxy["nodes"]}
 
 
 # ==== Node Management Endpoints ====
-@router.post("/api/nodes")
-async def add_node(request: Request):
-    """Add a new node to the target list"""
+@router.post("/api/proxies")
+async def add_proxy(request: Request):
+    """Add a new proxy node"""
+    global target_nodes
+    try:
+        new_proxy = await request.json()
+        if not validate_node(new_proxy, is_proxy=True):
+            raise HTTPException(status_code=400, detail="Invalid proxy format")
+
+        # Check for duplicate names
+        if any(proxy["name"] == new_proxy["name"] for proxy in target_nodes):
+            raise HTTPException(status_code=409, detail="Proxy name already exists")
+
+        # Ensure nodes field exists
+        if "nodes" not in new_proxy:
+            new_proxy["nodes"] = []
+
+        target_nodes.append(new_proxy)
+        return {"status": "success", "message": "Proxy added"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/proxies/{proxy_name}/nodes")
+async def add_node_to_proxy(proxy_name: str, request: Request):
+    """Add child node to proxy"""
     global target_nodes
     try:
         new_node = await request.json()
         if not validate_node(new_node):
             raise HTTPException(status_code=400, detail="Invalid node format")
 
-        # Check for duplicate
-        if any(node["name"] == new_node["name"] for node in target_nodes):
+        # Find corresponding proxy
+        proxy = next((p for p in target_nodes if p["name"] == proxy_name), None)
+        if not proxy:
+            raise HTTPException(status_code=404, detail="Proxy not found")
+
+        # Check for duplicate names
+        if any(node["name"] == new_node["name"] for node in proxy["nodes"]):
             raise HTTPException(status_code=409, detail="Node name already exists")
 
-        target_nodes.append(new_node)
-        return {"status": "success", "message": "Node added"}
+        proxy["nodes"].append(new_node)
+        return {"status": "success", "message": "Node added to proxy"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -146,6 +318,13 @@ async def proxy_request_by_name(request: Request, node_name: str, path: str):
     # Find node by name
     node = next((n for n in target_nodes if n["name"] == node_name), None)
     if not node:
+        # Find node from local_proxy
+        proxy_node = next((n for n in target_nodes if n["name"] == "local_proxy"), None)
+        if proxy_node:
+            node = next(
+                (n for n in proxy_node["nodes"] if n["name"] == node_name), None
+            )
+    if not node:
         raise HTTPException(
             status_code=404, detail=f"Node with name '{node_name}' not found"
         )
@@ -161,10 +340,10 @@ async def proxy_request_by_name(request: Request, node_name: str, path: str):
     methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"],
 )
 async def proxy_request(
-    request: Request, target_host: str, target_port_or_socket: str, path: str
+    request: Request, target_host: str, target_port_or_socket: str | int, path: str
 ):
     """Proxy requests to the specified target host and port or socket path"""
-    target_port_or_socket = unquote(target_port_or_socket)
+    target_port_or_socket = unquote(str(target_port_or_socket))
     # Check if target_port_or_socket is a socket path (contains '/')
     is_socket_path = "/" in target_port_or_socket
 
@@ -176,7 +355,7 @@ async def proxy_request(
         # Create UDS transport
         transport = httpx.AsyncHTTPTransport(uds=socket_path)
     else:
-        port = int(target_port_or_socket)
+        port = target_port_or_socket
         target_url = f"http://{target_host}:{port}/{path}"
         transport = None  # Use default transport
 
@@ -293,9 +472,67 @@ async def stop_heartbeat_api():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+async def load_nodes_from_supplier(node_supplier_url: str | None = None):
+    """Load node information from node supplier"""
+    global target_nodes
+
+    if not node_supplier_url:
+        return False
+
+    print(f"Fetching nodes from supplier: {node_supplier_url}")
+    nodes = await fetch_nodes_from_supplier(node_supplier_url)
+    if nodes:
+        target_nodes = nodes
+        print(f"Loaded {len(target_nodes)} proxy nodes from supplier")
+
+        # Get child nodes for each proxy
+        print("Fetching child nodes for each proxy...")
+        for proxy in target_nodes:
+            child_nodes = await fetch_child_nodes_from_proxy(proxy)
+            proxy["nodes"] = child_nodes
+            print(f"Proxy {proxy['name']} loaded {len(child_nodes)} child nodes")
+        return True
+    else:
+        print("Warning: No nodes loaded from supplier")
+        return False
+
+
+async def initialize_nodes(node_supplier_url: str | None = None):
+    """Initialize node configuration"""
+    global target_nodes
+    global args
+
+    if args is None:
+        raise ValueError("args is not initialized")
+
+    if node_supplier_url:
+        await load_nodes_from_supplier(node_supplier_url)
+    elif args.nodes:
+        try:
+            nodes = json.loads(args.nodes)
+            if validate_nodes(nodes):
+                target_nodes = [
+                    {
+                        "name": "local_proxy",
+                        "host": args.host,
+                        "port": args.port,
+                        "nodes": nodes,
+                    }
+                ]
+                print(f"Loaded {len(nodes)} target nodes from command line arguments")
+        except json.JSONDecodeError:
+            print("Failed to parse nodes JSON parameter")
+    elif args.config:
+        load_config(args.config)
+
+
 @router.get("/")
 async def serve_frontend():
-    """Return the frontend homepage"""
+    """Return frontend homepage"""
+    # Check if node supplier URL is configured
+    if args.node_supplier_url:
+        await initialize_nodes(args.node_supplier_url)
+
     try:
         # Use package resource path
         index_path = pkg_resources.resource_filename(
@@ -340,15 +577,30 @@ async def aggregated_metrics():
     if not target_nodes:
         return PlainTextResponse("# No nodes configured\n", status_code=404)
 
-    # Fetch metrics from all nodes concurrently
+    # TODO(baoloongmao): Support gather all metrics
+    if isinstance(target_nodes, dict) and "local_proxy" in target_nodes:
+        nodes = target_nodes["local_proxy"]["nodes"]
+    elif isinstance(target_nodes, list):
+        proxy_node = next(
+            (n for n in target_nodes if n.get("name") == "local_proxy"), None
+        )
+        nodes = proxy_node["nodes"] if proxy_node else []
+    else:
+        nodes = []
+
+    if not nodes:
+        return PlainTextResponse(
+            "# No nodes available for metrics collection\n", status_code=404
+        )
+
     metrics_results = await asyncio.gather(
-        *[_fetch_node_metrics(node) for node in target_nodes]
+        *[_fetch_node_metrics(node) for node in nodes]
     )
 
     # Combine all metrics with node name as comment header
     aggregated = ""
     for i, metrics in enumerate(metrics_results):
-        node = target_nodes[i]
+        node = nodes[i]
         aggregated += (
             f"# Metrics from node: {node['name']} ({node['host']}:{node['port']})\n"
         )
@@ -379,6 +631,7 @@ def create_app():
 
 
 def main():
+    global args  # 声明使用全局变量
     parser = argparse.ArgumentParser(description="LMCache Cluster Monitoring Tool")
     parser.add_argument(
         "--port", type=int, default=8000, help="Service port, default 8000"
@@ -417,27 +670,17 @@ def main():
         default=30,
         help="Heartbeat interval (seconds), default 30",
     )
+    parser.add_argument(
+        "--node-supplier-url",
+        type=str,
+        default=None,
+        help="URL to fetch node information from, e.g.: http://example.com/lmcache_infos",
+    )
 
-    args = parser.parse_args()
+    args = parser.parse_args()  # 赋值给全局变量
 
-    global target_nodes
-
-    if args.nodes:
-        try:
-            nodes = json.loads(args.nodes)
-            if validate_nodes(nodes):
-                target_nodes = nodes
-                print(
-                    f"Loaded {len(target_nodes)} target nodes from command line argument"
-                )
-            else:
-                print("Invalid nodes format. Please check your input.")
-                exit(1)
-        except json.JSONDecodeError:
-            print("Failed to parse nodes JSON. Please check your input format.")
-            exit(1)
-    if args.config:
-        load_config(args.config)
+    # Initialize node configuration
+    asyncio.run(initialize_nodes(args.node_supplier_url))
 
     app = create_app()
     print(f"Monitoring service running at http://{args.host}:{args.port}")

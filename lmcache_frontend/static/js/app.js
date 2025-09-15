@@ -1,13 +1,27 @@
 // Global variables
 let currentNode = null;
+let currentProxy = null;
 let proxyNodes = {};
 // Initialize after DOM is loaded
 window.addEventListener('DOMContentLoaded', () => {
-    // Initialize node selector
-    loadNodes();
+    // Initialize proxy selector
+    loadProxies();
 
-    // Node selection event
-    document.getElementById('nodeSelector').addEventListener('change', (e) => {
+    // Proxy selection event
+    document.getElementById('proxySelector').addEventListener('change', (e) => {
+        const proxyName = e.target.value;
+        if (proxyName) {
+            currentProxy = proxyNodes[proxyName];
+            loadTargetNodes(proxyName);
+        } else {
+            currentProxy = null;
+            document.getElementById('targetSelector').disabled = true;
+            document.getElementById('targetSelector').innerHTML = '<option value="">-- Select Target --</option>';
+        }
+    });
+
+    // Target selection event
+    document.getElementById('targetSelector').addEventListener('change', (e) => {
         const nodeId = e.target.value;
         if (nodeId) {
             currentNode = JSON.parse(nodeId);
@@ -39,34 +53,82 @@ window.addEventListener('DOMContentLoaded', () => {
     document.getElementById('addNodeBtn').addEventListener('click', addNode);
     document.getElementById('updateNodeBtn').addEventListener('click', updateNode);
 
+    // Refresh nodes button
+    document.getElementById('refreshNodesBtn').addEventListener('click', refreshNodes);
+
     // Load node management list
-    loadNodeListForManagement();
+    document.getElementById('node-management-tab').addEventListener('shown.bs.tab', () => {
+        loadNodeListForManagement();
+    });
 });
 
-// Load node list
-async function loadNodes() {
+// Load proxy list
+async function loadProxies() {
     try {
-        const response = await fetch('/api/nodes');
+        const response = await fetch('/api/proxies');
         const data = await response.json();
 
-        const selector = document.getElementById('nodeSelector');
-        selector.innerHTML = '<option value="">-- Select Target Node --</option>';
+        const selector = document.getElementById('proxySelector');
+        selector.innerHTML = '<option value="">-- Select Proxy --</option>';
 
         proxyNodes = {};
-        
+
+        data.proxies.forEach(proxy => {
+            const option = document.createElement('option');
+            option.value = proxy.name;
+            option.textContent = `${proxy.name} (${proxy.host}:${proxy.port})`;
+            selector.appendChild(option);
+
+            proxyNodes[proxy.name] = proxy;
+        });
+    } catch (error) {
+        console.error('Failed to load proxies:', error);
+    }
+}
+
+// Load target nodes for selected proxy
+async function loadTargetNodes(proxyName) {
+    try {
+        const response = await fetch(`/api/proxies/${proxyName}/nodes`);
+        const data = await response.json();
+
+        const selector = document.getElementById('targetSelector');
+        selector.innerHTML = '<option value="">-- Select Target --</option>';
+        selector.disabled = false;
+
         data.nodes.forEach(node => {
             const option = document.createElement('option');
             option.value = JSON.stringify(node);
             option.textContent = `${node.name} (${node.host}:${node.port})`;
             selector.appendChild(option);
-
-            if (node.is_proxy) {
-                proxyNodes[node.name] = node;
-            }
         });
     } catch (error) {
-        console.error('Failed to load nodes:', error);
+        console.error('Failed to load target nodes:', error);
     }
+}
+
+// Refresh child nodes of proxy
+async function refreshProxyNodes(proxyName) {
+    try {
+        const response = await fetch(`/api/proxies/${proxyName}/refresh`);
+        const data = await response.json();
+        if (data.status === "success") {
+            return data.nodes;
+        }
+        return [];
+    } catch (error) {
+        console.error('Failed to refresh proxy nodes:', error);
+        return [];
+    }
+}
+
+// Load node list
+async function loadNodes() {}
+
+// Refresh nodes for current proxy
+async function refreshNodes() {
+    if (!currentProxy) return;
+    await loadTargetNodes(currentProxy.name);
 }
 
 // ==== Node Management Functions ====
@@ -414,7 +476,5 @@ function transformPath(path) {
         const proxyNode = proxyNodes[currentNode.proxy_id];
         return `/proxy2/${proxyNode.name}/proxy2/${currentNode.name}/${path}`;
     }
-
-    const portOrSocket = encodeURIComponent(encodeURIComponent(currentNode.port));
     return `/proxy2/${currentNode.name}/${path}`;
 }

@@ -2,6 +2,7 @@
 """Heartbeat service module for periodic health reporting"""
 
 import asyncio
+import json
 import os
 import socket
 import threading
@@ -53,7 +54,8 @@ class HeartbeatService:
                     for match in matches:
                         if match != "127.0.0.1" and not match.startswith("169.254."):
                             return match
-            except:
+            except Exception as e:
+                print(f"Error getting local IP: {str(e)}")
                 pass
 
             return "127.0.0.1"
@@ -76,11 +78,20 @@ class HeartbeatService:
             if version:
                 print(f"Got version from target nodes: {version}")
 
+            # Calculate total children nodes across all proxies
+            total_children = sum(
+                len(proxy_node["nodes"]) for proxy_node in self.target_nodes
+            )
             params = {
                 "pid": os.getpid(),
                 "api_address": api_address,
                 "version": version or "1.0.0",
-                "other_info": f"startup_time:{self.startup_time.isoformat()},target_nodes_count:{len(self.target_nodes)}",
+                "other_info": json.dumps(
+                    {
+                        "startup_time": self.startup_time.isoformat(),
+                        "nodes_count": total_children,
+                    }
+                ),
             }
 
             async with httpx.AsyncClient(timeout=10.0) as client:
@@ -99,25 +110,26 @@ class HeartbeatService:
         if not self.target_nodes:
             return None
 
-        for node in self.target_nodes:
-            try:
-                async with httpx.AsyncClient(timeout=5.0) as client:
-                    response = await client.get(
-                        f"http://localhost:{self.app_port}/proxy2/{node['name']}/version"
-                    )
+        for proxy_node in self.target_nodes:
+            for node in proxy_node["nodes"]:
+                try:
+                    async with httpx.AsyncClient(timeout=5.0) as client:
+                        response = await client.get(
+                            f"http://localhost:{self.app_port}/proxy2/{proxy_node['name']}/proxy2/{node['name']}/version"
+                        )
 
-                if response.status_code == 200 and response.content:
-                    content = response.content.decode("utf-8").strip()
-                    # Try to remove surrounding quotes
-                    if (content.startswith('"') and content.endswith('"')) or (
-                        content.startswith("'") and content.endswith("'")
-                    ):
-                        content = content[1:-1]
-                    return content
+                    if response.status_code == 200 and response.content:
+                        content = response.content.decode("utf-8").strip()
+                        # Try to remove surrounding quotes
+                        if (content.startswith('"') and content.endswith('"')) or (
+                            content.startswith("'") and content.endswith("'")
+                        ):
+                            content = content[1:-1]
+                        return content
 
-            except Exception as e:
-                print(f"Failed to get version from node {node['name']}: {str(e)}")
-                continue
+                except Exception as e:
+                    print(f"Failed to get version from node {node['name']}: {str(e)}")
+                    continue
 
         return None
 
