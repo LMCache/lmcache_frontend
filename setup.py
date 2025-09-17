@@ -26,6 +26,14 @@ setup(
     },
     install_requires=[
         "Flask",
+        "setuptools>=77.0.3",
+        "packaging>=24.2",
+        "setuptools_scm>=8",
+        "wheel",
+        "fastapi==0.104.1",
+        "uvicorn[standard]==0.24.0",
+        "httpx==0.25.2",
+        "starlette==0.27.0",
     ],
     entry_points={"console_scripts": ["lmcache-frontend=lmcache_frontend.app:main"]},
 )
