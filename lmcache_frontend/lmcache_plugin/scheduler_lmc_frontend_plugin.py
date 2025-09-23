@@ -15,9 +15,7 @@ try:
         lmcache_get_or_create_config as get_config,
     )
 except ImportError:
-    from lmcache.integration.vllm.utils import (
-        lmcache_get_config as get_config,
-    )
+    from lmcache.integration.vllm.utils import lmcache_get_config as get_config
 
 from lmcache.v1.config import LMCacheEngineConfig
 from lmcache.v1.internal_api_server.utils import get_all_server_infos
@@ -50,7 +48,9 @@ print(f"Python plugin running with role: {role}")
 print(f"Config: {config}")
 
 nodes = get_all_server_infos(config, worker_count)
-port = config.extra_config.get("plugin.frontend.port", os.getenv("LMCACHE_FRONTEND_PORT"))
+port = config.extra_config.get(
+    "plugin.frontend.port", os.getenv("LMCACHE_FRONTEND_PORT")
+)
 
 sys.argv = [
     sys.argv[0],

@@ -51,7 +51,9 @@ def get_lmcache_infos():
                             "startTime",
                             datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                         ),
-                        "lastReportTime": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "lastReportTime": datetime.datetime.now().strftime(
+                            "%Y-%m-%d %H:%M:%S"
+                        ),
                         "otherInfo": data.get("otherInfo", "{}"),
                     }
                 ],
@@ -75,7 +77,9 @@ def get_lmcache_infos():
 
     for api_address, data in HEARTBEAT_DATA.items():
         last_report_time = datetime.datetime.strptime(
-            data.get("lastReportTime", datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+            data.get(
+                "lastReportTime", datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            ),
             "%Y-%m-%d %H:%M:%S",
         )
         if last_report_time >= threshold:
@@ -91,7 +95,9 @@ def get_lmcache_infos():
                             "startTime",
                             datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                         ),
-                        "lastReportTime": last_report_time.strftime("%Y-%m-%d %H:%M:%S"),
+                        "lastReportTime": last_report_time.strftime(
+                            "%Y-%m-%d %H:%M:%S"
+                        ),
                         "otherInfo": data.get("otherInfo", "{}"),
                     }
                 ],
