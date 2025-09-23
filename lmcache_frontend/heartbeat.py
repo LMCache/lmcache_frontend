@@ -23,46 +23,19 @@ class HeartbeatService:
         self.target_nodes = []
 
     def get_local_ip(self):
-        """Get local IP address"""
+        """
+        Get the local IP address of the machine.
+        """
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
-            # First try to get IP by connecting to external address
-            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-                s.connect(("8.8.8.8", 80))
-                ip = s.getsockname()[0]
-                if ip and ip != "127.0.0.1" and not ip.startswith("192.168."):
-                    return ip
-
-            # If above method fails, try getting IP from hostname
-            hostname = socket.gethostname()
-            ip = socket.gethostbyname(hostname)
-            if ip and ip != "127.0.0.1" and not ip.startswith("192.168."):
-                return ip
-
-            # Finally try to get IP from all network interfaces
-            import re
-            import subprocess
-
-            # Use ifconfig on macOS/Linux to get IP
-            try:
-                result = subprocess.run(
-                    ["ifconfig"], capture_output=True, text=True, timeout=5
-                )
-                if result.returncode == 0:
-                    # Search for IP addresses
-                    ip_pattern = r"inet (\d+\.\d+\.\d+\.\d+)"
-                    matches = re.findall(ip_pattern, result.stdout)
-                    for match in matches:
-                        if match != "127.0.0.1" and not match.startswith("169.254."):
-                            return match
-            except Exception as e:
-                print(f"Error getting local IP: {str(e)}")
-                pass
-
-            return "127.0.0.1"
-
-        except Exception as e:
-            print(f"Error getting local IP: {str(e)}")
-            return "127.0.0.1"
+            # "Connect" to a public IP — just to determine local IP
+            s.connect(("8.8.8.8", 80))
+            return s.getsockname()[0]
+        except Exception:
+            print("Failed to get local IP address. Falling back to loopback address.")
+            return "127.0.0.1"  # Fallback to loopback
+        finally:
+            s.close()
 
     def set_app_config(self, host: str, port: int, target_nodes: list):
         """Set application configuration for heartbeat reporting"""
