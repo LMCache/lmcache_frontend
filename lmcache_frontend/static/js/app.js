@@ -49,12 +49,28 @@ window.addEventListener('DOMContentLoaded', () => {
     // Set log level button
     document.getElementById('setLogLevelBtn').addEventListener('click', setLogLevel);
 
+    // Config management buttons
+    document.getElementById('getConfigBtn').addEventListener('click', getConfig);
+    document.getElementById('setConfigBtn').addEventListener('click', setConfig);
+
+    // Refresh page button
+    document.getElementById('refreshPageBtn').addEventListener('click', refreshCurrentPage);
+
     // Node management buttons
     document.getElementById('addNodeBtn').addEventListener('click', addNode);
     document.getElementById('updateNodeBtn').addEventListener('click', updateNode);
 
     // Refresh nodes button
     document.getElementById('refreshNodesBtn').addEventListener('click', refreshNodes);
+
+    // Refresh current page function
+    function refreshCurrentPage() {
+        if (currentNode) {
+            refreshActiveTab();
+        } else {
+            alert('Please select a target node first');
+        }
+    }
 
     // Load node management list
     document.getElementById('node-management-tab').addEventListener('shown.bs.tab', () => {
@@ -324,6 +340,15 @@ function refreshActiveTab() {
         case 'loglevel':
             loadLogLevel();
             break;
+        case 'config':
+            loadConfig();
+            break;
+        case 'meta':
+            loadMeta();
+            break;
+        case 'inference':
+            loadInference();
+            break;
         case 'node-management':
             loadNodeListForManagement();
             break;
@@ -460,13 +485,125 @@ async function setLogLevel() {
     }
 }
 
+// Load configuration
+async function loadConfig() {
+    if (!currentNode) return;
+
+    const contentDiv = document.getElementById('configContent');
+    const configKeyInput = document.getElementById('configKeyInput');
+    const configValueInput = document.getElementById('configValueInput');
+
+    contentDiv.textContent = 'Loading...';
+    configKeyInput.value = '';
+    configValueInput.value = '';
+
+    try {
+        const response = await fetch(transformPath('conf'));
+        const text = await response.text();
+        contentDiv.textContent = text;
+    } catch (error) {
+        contentDiv.textContent = `Failed to load configuration: ${error.message}`;
+    }
+}
+
+// Get configuration
+async function getConfig() {
+    if (!currentNode) return;
+
+    const configKeyInput = document.getElementById('configKeyInput');
+    const configKey = configKeyInput.value.trim();
+
+    try {
+        let url = transformPath('conf');
+        if (configKey) {
+            url += `?key=${encodeURIComponent(configKey)}`;
+        }
+        const response = await fetch(url);
+        const text = await response.text();
+        alert(text);
+    } catch (error) {
+        alert(`Failed to get configuration: ${error.message}`);
+    }
+}
+
+// Set configuration
+async function setConfig() {
+    if (!currentNode) return;
+
+    const configKeyInput = document.getElementById('configKeyInput');
+    const configValueInput = document.getElementById('configValueInput');
+
+    const configKey = configKeyInput.value.trim();
+    const configValue = configValueInput.value.trim();
+
+    if (!configKey) {
+        alert('Please enter a configuration key');
+        return;
+    }
+
+    if (!configValue) {
+        alert('Please enter a configuration value');
+        return;
+    }
+
+    try {
+        const url = transformPath('conf') + `?key=${encodeURIComponent(configKey)}&value=${encodeURIComponent(configValue)}`;
+        const response = await fetch(url, { method: 'GET' });
+        const text = await response.text();
+        alert(text);
+
+        if (response.ok) {
+            loadConfig();
+        }
+    } catch (error) {
+        alert(`Failed to set configuration: ${error.message}`);
+    }
+}
+
+// Load meta information
+async function loadMeta() {
+    if (!currentNode) return;
+
+    const contentDiv = document.getElementById('metaContent');
+    contentDiv.textContent = 'Loading...';
+
+    try {
+        const response = await fetch(transformPath('meta'));
+        const text = await response.text();
+        contentDiv.textContent = text;
+    } catch (error) {
+        contentDiv.textContent = `Failed to load meta information: ${error.message}`;
+    }
+}
+
+// Load inference information
+async function loadInference() {
+    if (!currentNode) return;
+
+    const contentDiv = document.getElementById('inferenceContent');
+    contentDiv.textContent = 'Loading...';
+
+    try {
+        const response = await fetch(transformPath('inference_info'));
+        const text = await response.text();
+        contentDiv.textContent = text;
+    } catch (error) {
+        contentDiv.textContent = `Failed to load inference information: ${error.message}`;
+    }
+}
+
 // Clear all tab contents
 function clearAllTabs() {
     document.getElementById('overviewContent').innerHTML = 'Please select a target node first';
     document.getElementById('metricsContent').textContent = 'Please select a target node first';
     document.getElementById('threadsContent').textContent = 'Please select a target node first';
     document.getElementById('logLevelContent').textContent = 'Please select a target node first';
+    document.getElementById('configContent').textContent = 'Please select a target node first';
+    document.getElementById('metaContent').textContent = 'Please select a target node first';
+    document.getElementById('inferenceContent').textContent = 'Please select a target node first';
     document.getElementById('loggerInput').value = '';
+    document.getElementById('configKeyInput').value = '';
+    document.getElementById('configValueInput').value = '';
 }
 
 function transformPath(path) {
