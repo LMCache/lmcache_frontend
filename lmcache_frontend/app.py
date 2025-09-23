@@ -119,14 +119,10 @@ def load_config(config_path=None):
         if config_path:
             with open(config_path, "r") as f:
                 target_nodes = json.load(f)
-            print(
-                f"Loaded {len(target_nodes)} target nodes from specified path: {config_path}"
-            )
+            print(f"Loaded {len(target_nodes)} target nodes from specified path: {config_path}")
         else:
             # Use package resource path as default configuration
-            default_config_path = pkg_resources.resource_filename(
-                "lmcache_frontend", "config.json"
-            )
+            default_config_path = pkg_resources.resource_filename("lmcache_frontend", "config.json")
             with open(default_config_path, "r") as f:
                 target_nodes = json.load(f)
             print(f"Loaded default configuration with {len(target_nodes)} target nodes")
@@ -210,10 +206,7 @@ async def refresh_proxy_nodes(proxy_name: str):
 @router.get("/api/proxies")
 async def get_proxies():
     """Get all proxy nodes (without child nodes)"""
-    proxies = [
-        {"name": proxy["name"], "host": proxy["host"], "port": proxy["port"]}
-        for proxy in target_nodes
-    ]
+    proxies = [{"name": proxy["name"], "host": proxy["host"], "port": proxy["port"]} for proxy in target_nodes]
     return {"proxies": proxies}
 
 
@@ -321,27 +314,19 @@ async def proxy_request_by_name(request: Request, node_name: str, path: str):
         # Find node from local_proxy
         proxy_node = next((n for n in target_nodes if n["name"] == "local_proxy"), None)
         if proxy_node:
-            node = next(
-                (n for n in proxy_node["nodes"] if n["name"] == node_name), None
-            )
+            node = next((n for n in proxy_node["nodes"] if n["name"] == node_name), None)
     if not node:
-        raise HTTPException(
-            status_code=404, detail=f"Node with name '{node_name}' not found"
-        )
+        raise HTTPException(status_code=404, detail=f"Node with name '{node_name}' not found")
 
     # Use existing proxy_request logic
-    return await proxy_request(
-        request, target_host=node["host"], target_port_or_socket=node["port"], path=path
-    )
+    return await proxy_request(request, target_host=node["host"], target_port_or_socket=node["port"], path=path)
 
 
 @router.api_route(
     "/proxy/{target_host}/{target_port_or_socket}/{path:path}",
     methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"],
 )
-async def proxy_request(
-    request: Request, target_host: str, target_port_or_socket: str | int, path: str
-):
+async def proxy_request(request: Request, target_host: str, target_port_or_socket: str | int, path: str):
     """Proxy requests to the specified target host and port or socket path"""
     target_port_or_socket = unquote(str(target_port_or_socket))
     # Check if target_port_or_socket is a socket path (contains '/')
@@ -535,9 +520,7 @@ async def serve_frontend():
 
     try:
         # Use package resource path
-        index_path = pkg_resources.resource_filename(
-            "lmcache_frontend", "static/index.html"
-        )
+        index_path = pkg_resources.resource_filename("lmcache_frontend", "static/index.html")
         return FileResponse(index_path)
     except Exception:
         # Development environment uses local files
@@ -581,29 +564,21 @@ async def aggregated_metrics():
     if isinstance(target_nodes, dict) and "local_proxy" in target_nodes:
         nodes = target_nodes["local_proxy"]["nodes"]
     elif isinstance(target_nodes, list):
-        proxy_node = next(
-            (n for n in target_nodes if n.get("name") == "local_proxy"), None
-        )
+        proxy_node = next((n for n in target_nodes if n.get("name") == "local_proxy"), None)
         nodes = proxy_node["nodes"] if proxy_node else []
     else:
         nodes = []
 
     if not nodes:
-        return PlainTextResponse(
-            "# No nodes available for metrics collection\n", status_code=404
-        )
+        return PlainTextResponse("# No nodes available for metrics collection\n", status_code=404)
 
-    metrics_results = await asyncio.gather(
-        *[_fetch_node_metrics(node) for node in nodes]
-    )
+    metrics_results = await asyncio.gather(*[_fetch_node_metrics(node) for node in nodes])
 
     # Combine all metrics with node name as comment header
     aggregated = ""
     for i, metrics in enumerate(metrics_results):
         node = nodes[i]
-        aggregated += (
-            f"# Metrics from node: {node['name']} ({node['host']}:{node['port']})\n"
-        )
+        aggregated += f"# Metrics from node: {node['name']} ({node['host']}:{node['port']})\n"
         aggregated += metrics
         aggregated += "\n\n"
 
@@ -633,12 +608,8 @@ def create_app():
 def main():
     global args  # 声明使用全局变量
     parser = argparse.ArgumentParser(description="LMCache Cluster Monitoring Tool")
-    parser.add_argument(
-        "--port", type=int, default=8000, help="Service port, default 8000"
-    )
-    parser.add_argument(
-        "--host", type=str, default="0.0.0.0", help="Bind host address, default 0.0.0.0"
-    )
+    parser.add_argument("--port", type=int, default=8000, help="Service port, default 8000")
+    parser.add_argument("--host", type=str, default="0.0.0.0", help="Bind host address, default 0.0.0.0")
     parser.add_argument(
         "--config",
         type=str,
@@ -698,9 +669,7 @@ def main():
         print(f"API Address: http://{args.host}:{args.port}")
         print(f"Target nodes count: {len(target_nodes)}")
 
-        heartbeat_service.start(
-            args.heartbeat_url, args.heartbeat_initial_delay, args.heartbeat_interval
-        )
+        heartbeat_service.start(args.heartbeat_url, args.heartbeat_initial_delay, args.heartbeat_interval)
     else:
         print("Heartbeat URL not configured, heartbeat disabled")
 

@@ -1,3 +1,9 @@
 [tool.codespell]
 ignore-words-list = "te"
 skip = "*.pyc,*.so,*.dll,*.exe,*.png,*.jpg,*.gif,*.pdf,.idea/**"
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.format]
+# ruff format configuration

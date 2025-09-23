@@ -1,0 +1,40 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: Run app.py",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/lmcache_frontend/app.py",
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "Python: Run with Heartbeat",
+            "type": "python",
+            "request": "launch",
+            "args": [
+                "--port", "8080",
+                "--heartbeat-url", "http://30.82.240.11:8080/lmcache_heartbeat",
+                "--heartbeat-interval", "30",
+                "--heartbeat-initial-delay", "5"
+            ],
+            "console": "integratedTerminal",
+            "module": "lmcache_frontend.app",
+            "jinja": true
+        },
+        {
+            "name": "Python: Debug with Custom Config",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/lmcache_frontend/app.py",
+            "args": [
+                "--port", "8000",
+                "--host", "0.0.0.0",
+                "--config", "${workspaceFolder}/config.json"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": true
+        }
+    ]
+}

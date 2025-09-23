@@ -52,9 +52,7 @@ class HeartbeatService:
                 print(f"Got version from target nodes: {version}")
 
             # Calculate total children nodes across all proxies
-            total_children = sum(
-                len(proxy_node["nodes"]) for proxy_node in self.target_nodes
-            )
+            total_children = sum(len(proxy_node["nodes"]) for proxy_node in self.target_nodes)
             params = {
                 "pid": os.getpid(),
                 "api_address": api_address,
@@ -70,9 +68,7 @@ class HeartbeatService:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.get(heartbeat_url, params=params)
                 response.raise_for_status()
-                print(
-                    f"Heartbeat sent successfully: {heartbeat_url} - Status: {response.status_code}"
-                )
+                print(f"Heartbeat sent successfully: {heartbeat_url} - Status: {response.status_code}")
                 return True
         except Exception as e:
             print(f"Heartbeat send failed: {heartbeat_url} - Error: {str(e)}")
@@ -109,9 +105,7 @@ class HeartbeatService:
     def worker(self, heartbeat_url: str, initial_delay: int, interval: int):
         """Heartbeat background thread worker function"""
         local_ip = self.get_local_ip()
-        print(
-            f"Heartbeat thread started - Local IP: {local_ip}, Service URL: {heartbeat_url}"
-        )
+        print(f"Heartbeat thread started - Local IP: {local_ip}, Service URL: {heartbeat_url}")
         print(f"Initial delay: {initial_delay}s, Interval: {interval}s")
 
         if initial_delay > 0:
