@@ -27,8 +27,11 @@
                         </div>
                     </div>
                     <div class="mt-2">
-                        <button id="refreshNodesBtn" class="btn btn-sm btn-outline-primary">
+                        <button id="refreshNodesBtn" class="btn btn-sm btn-outline-primary me-2">
                             <i class="bi bi-arrow-clockwise"></i> Refresh Nodes
+                        </button>
+                        <button id="refreshPageBtn" class="btn btn-sm btn-outline-primary me-2">
+                            <i class="bi bi-arrow-clockwise"></i> Refresh Page
                         </button>
                     </div>
                 </div>
@@ -50,6 +53,15 @@
             </li>
             <li class="nav-item" role="presentation">
                 <button class="nav-link" id="loglevel-tab" data-bs-toggle="tab" data-bs-target="#loglevel" type="button" role="tab">Log Level</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="config-tab" data-bs-toggle="tab" data-bs-target="#config" type="button" role="tab">Config</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="meta-tab" data-bs-toggle="tab" data-bs-target="#meta" type="button" role="tab">Meta</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="inference-tab" data-bs-toggle="tab" data-bs-target="#inference" type="button" role="tab">Inference</button>
             </li>
             <!-- Add Node Management Tab -->
             <li class="nav-item" role="presentation">
@@ -101,6 +113,38 @@
                         <pre id="logLevelContent">Please select a target node first</pre>
                     </div>
                 </div>
+            </div>
+
+            <div class="tab-pane fade" id="config" role="tabpanel">
+                <h3>Configuration Management</h3>
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label for="configKeyInput" class="form-label">Configuration Key (leave empty for all)</label>
+                            <input type="text" class="form-control" id="configKeyInput" placeholder="Enter config key">
+                        </div>
+                        <div class="mb-3">
+                            <label for="configValueInput" class="form-label">Configuration Value</label>
+                            <input type="text" class="form-control" id="configValueInput" placeholder="Enter config value">
+                        </div>
+                        <button id="getConfigBtn" class="btn btn-info me-2">Get Config</button>
+                        <button id="setConfigBtn" class="btn btn-primary">Set Config</button>
+                    </div>
+                    <div class="col-md-6">
+                        <h4>Current Configuration</h4>
+                        <pre id="configContent">Please select a target node first</pre>
+                    </div>
+                </div>
+            </div>
+
+            <div class="tab-pane fade" id="meta" role="tabpanel">
+                <h3>Meta Information</h3>
+                <pre id="metaContent">Please select a target node first</pre>
+            </div>
+
+            <div class="tab-pane fade" id="inference" role="tabpanel">
+                <h3>Inference Information</h3>
+                <pre id="inferenceContent">Please select a target node first</pre>
             </div>
 
             <!-- Node Management Tab -->
