@@ -71,7 +71,8 @@ class HeartbeatService:
                 response = await client.get(heartbeat_url, params=params)
                 response.raise_for_status()
                 print(
-                    f"Heartbeat sent successfully: {heartbeat_url} - Status: {response.status_code}"
+                    f"Heartbeat sent successfully: "
+                    f"{heartbeat_url} - Status: {response.status_code}"
                 )
                 return True
         except Exception as e:
@@ -110,7 +111,8 @@ class HeartbeatService:
         """Heartbeat background thread worker function"""
         local_ip = self.get_local_ip()
         print(
-            f"Heartbeat thread started - Local IP: {local_ip}, Service URL: {heartbeat_url}"
+            f"Heartbeat thread started - Local IP: {local_ip}, "
+            f"Service URL: {heartbeat_url}"
         )
         print(f"Initial delay: {initial_delay}s, Interval: {interval}s")
 

@@ -120,7 +120,8 @@ def load_config(config_path=None):
             with open(config_path, "r") as f:
                 target_nodes = json.load(f)
             print(
-                f"Loaded {len(target_nodes)} target nodes from specified path: {config_path}"
+                f"Loaded {len(target_nodes)} target nodes from specified path: "
+                f"{config_path}"
             )
         else:
             # Use package resource path as default configuration

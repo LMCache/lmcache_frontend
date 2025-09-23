@@ -6,10 +6,6 @@ repos:
     entry: python tools/check_spdx_header.py
     language: python
     types: [python]
-- repo: https://github.com/PyCQA/isort
-  rev: 6.0.1
-  hooks:
-  - id: isort
 - repo: https://github.com/astral-sh/ruff-pre-commit
   rev: v0.11.7
   hooks:
