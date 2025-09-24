@@ -632,7 +632,7 @@ def create_app():
 
 
 def main():
-    global args  # 声明使用全局变量
+    global args
     parser = argparse.ArgumentParser(description="LMCache Cluster Monitoring Tool")
     parser.add_argument(
         "--port", type=int, default=8000, help="Service port, default 8000"
@@ -677,8 +677,15 @@ def main():
         default=None,
         help="URL to fetch node information from, e.g.: http://example.com/lmcache_infos",
     )
+    parser.add_argument(
+        "--log-level",
+        type=str,
+        default="warning",
+        choices=["critical", "error", "warning", "warn", "info", "debug", "trace"],
+        help="Uvicorn log level, default: warn",
+    )
 
-    args = parser.parse_args()  # 赋值给全局变量
+    args = parser.parse_args()
 
     # Initialize node configuration
     asyncio.run(initialize_nodes(args.node_supplier_url))
@@ -706,7 +713,7 @@ def main():
         print("Heartbeat URL not configured, heartbeat disabled")
 
     try:
-        uvicorn.run(app, host=args.host, port=args.port)
+        uvicorn.run(app, host=args.host, port=args.port, log_level=args.log_level)
     finally:
         # Stop heartbeat service when app closes
         print("Shutting down application...")

@@ -18,7 +18,7 @@ static_files = package_files("lmcache_frontend/")
 
 setup(
     name="lmcache_frontend",
-    version="0.1.8",
+    version="0.1.9",
     packages=find_packages(),
     include_package_data=True,
     package_data={
@@ -30,10 +30,10 @@ setup(
         "packaging>=24.2",
         "setuptools_scm>=8",
         "wheel",
-        "fastapi==0.104.1",
-        "uvicorn[standard]==0.24.0",
-        "httpx==0.25.2",
-        "starlette==0.27.0",
+        "fastapi",
+        "uvicorn",
+        "httpx",
+        "starlette",
     ],
     entry_points={"console_scripts": ["lmcache-frontend=lmcache_frontend.app:main"]},
 )
