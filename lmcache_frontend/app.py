@@ -79,6 +79,22 @@ async def fetch_child_nodes_from_proxy(proxy_node):
         return []
 
 
+async def fetch_all_child_nodes_concurrently(proxy_nodes):
+    """Fetch child nodes from multiple proxy nodes concurrently"""
+    tasks = [fetch_child_nodes_from_proxy(proxy) for proxy in proxy_nodes]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    
+    # Process results and handle exceptions
+    for i, result in enumerate(results):
+        if isinstance(result, Exception):
+            print(f"Error fetching nodes from proxy {proxy_nodes[i]['name']}: {result}")
+            proxy_nodes[i]["nodes"] = []
+        else:
+            proxy_nodes[i]["nodes"] = result
+    
+    return proxy_nodes
+
+
 async def fetch_nodes_from_supplier(url):
     """Fetch node information from node supplier"""
     try:
@@ -486,12 +502,13 @@ async def load_nodes_from_supplier(node_supplier_url: str | None = None):
         target_nodes = nodes
         print(f"Loaded {len(target_nodes)} proxy nodes from supplier")
 
-        # Get child nodes for each proxy
-        print("Fetching child nodes for each proxy...")
+        # Get child nodes for each proxy concurrently
+        print("Fetching child nodes for each proxy concurrently...")
+        target_nodes = await fetch_all_child_nodes_concurrently(target_nodes)
+        
+        # Print summary
         for proxy in target_nodes:
-            child_nodes = await fetch_child_nodes_from_proxy(proxy)
-            proxy["nodes"] = child_nodes
-            print(f"Proxy {proxy['name']} loaded {len(child_nodes)} child nodes")
+            print(f"Proxy {proxy['name']} loaded {len(proxy['nodes'])} child nodes")
         return True
     else:
         print("Warning: No nodes loaded from supplier")
