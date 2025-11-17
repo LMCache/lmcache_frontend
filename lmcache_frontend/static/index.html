@@ -26,13 +26,26 @@
                             </select>
                         </div>
                     </div>
-                    <div class="mt-2">
-                        <button id="refreshNodesBtn" class="btn btn-sm btn-outline-primary me-2">
-                            <i class="bi bi-arrow-clockwise"></i> Refresh Nodes
-                        </button>
-                        <button id="refreshPageBtn" class="btn btn-sm btn-outline-primary me-2">
-                            <i class="bi bi-arrow-clockwise"></i> Refresh Page
-                        </button>
+                    <div class="mt-2 row g-2">
+                        <div class="col-md-6">
+                            <div class="input-group input-group-sm">
+                                <input type="text" class="form-control" id="envFilterInput" placeholder="Filter by env (e.g., TAG=TaijiDS)">
+                                <button id="filterNodesBtn" class="btn btn-outline-primary" type="button">
+                                    <i class="bi bi-funnel"></i> Filter Nodes
+                                </button>
+                                <button id="clearFilterBtn" class="btn btn-outline-secondary" type="button">
+                                    <i class="bi bi-x"></i> Clear
+                                </button>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <button id="refreshNodesBtn" class="btn btn-sm btn-outline-primary me-2">
+                                <i class="bi bi-arrow-clockwise"></i> Refresh Nodes
+                            </button>
+                            <button id="refreshPageBtn" class="btn btn-sm btn-outline-primary me-2">
+                                <i class="bi bi-arrow-clockwise"></i> Refresh Page
+                            </button>
+                        </div>
                     </div>
                 </div>
                 <div class="col-md-6 text-end">
@@ -62,6 +75,9 @@
             </li>
             <li class="nav-item" role="presentation">
                 <button class="nav-link" id="inference-tab" data-bs-toggle="tab" data-bs-target="#inference" type="button" role="tab">Inference</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="env-tab" data-bs-toggle="tab" data-bs-target="#env" type="button" role="tab">Environment</button>
             </li>
             <!-- Add Node Management Tab -->
             <li class="nav-item" role="presentation">
@@ -145,6 +161,14 @@
             <div class="tab-pane fade" id="inference" role="tabpanel">
                 <h3>Inference Information</h3>
                 <pre id="inferenceContent">Please select a target node first</pre>
+            </div>
+
+            <div class="tab-pane fade" id="env" role="tabpanel">
+                <h3>Environment Variables</h3>
+                <div class="mb-3">
+                    <input type="text" class="form-control" id="envSearchInput" placeholder="Search environment variables...">
+                </div>
+                <pre id="envContent">Please select a target node first</pre>
             </div>
 
             <!-- Node Management Tab -->
