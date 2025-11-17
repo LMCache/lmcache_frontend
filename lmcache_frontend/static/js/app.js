@@ -63,6 +63,13 @@ window.addEventListener('DOMContentLoaded', () => {
     // Refresh nodes button
     document.getElementById('refreshNodesBtn').addEventListener('click', refreshNodes);
 
+    // Environment search input
+    document.getElementById('envSearchInput').addEventListener('input', filterEnvVariables);
+
+    // Environment filter buttons
+    document.getElementById('filterNodesBtn').addEventListener('click', filterNodesByEnv);
+    document.getElementById('clearFilterBtn').addEventListener('click', clearEnvFilter);
+
     // Refresh current page function
     function refreshCurrentPage() {
         if (currentNode) {
@@ -103,16 +110,22 @@ async function loadProxies() {
 }
 
 // Load target nodes for selected proxy
-async function loadTargetNodes(proxyName) {
+async function loadTargetNodes(proxyName, filteredNodes = null) {
     try {
-        const response = await fetch(`/api/proxies/${proxyName}/nodes`);
-        const data = await response.json();
+        let nodes;
+        if (filteredNodes) {
+            nodes = filteredNodes;
+        } else {
+            const response = await fetch(`/api/proxies/${proxyName}/nodes`);
+            const data = await response.json();
+            nodes = data.nodes;
+        }
 
         const selector = document.getElementById('targetSelector');
         selector.innerHTML = '<option value="">-- Select Target --</option>';
         selector.disabled = false;
 
-        data.nodes.forEach(node => {
+        nodes.forEach(node => {
             const option = document.createElement('option');
             option.value = JSON.stringify(node);
             option.textContent = `${node.name} (${node.host}:${node.port})`;
@@ -348,6 +361,9 @@ function refreshActiveTab() {
             break;
         case 'inference':
             loadInference();
+            break;
+        case 'env':
+            loadEnvironment();
             break;
         case 'node-management':
             loadNodeListForManagement();
@@ -592,6 +608,82 @@ async function loadInference() {
     }
 }
 
+// Load environment variables
+let envVariablesData = null; // Store as object instead of string
+async function loadEnvironment() {
+    if (!currentNode) return;
+
+    const contentDiv = document.getElementById('envContent');
+    const searchInput = document.getElementById('envSearchInput');
+    contentDiv.textContent = 'Loading...';
+    searchInput.value = '';
+
+    try {
+        const response = await fetch(transformPath('env'));
+        const text = await response.text();
+        
+        // Parse JSON and format for display
+        try {
+            envVariablesData = JSON.parse(text);
+            // Format as KEY=VALUE lines for display
+            const formattedText = Object.entries(envVariablesData)
+                .map(([key, value]) => `${key}=${value}`)
+                .join('\n');
+            contentDiv.textContent = formattedText;
+        } catch (e) {
+            // Fallback to plain text if not JSON
+            envVariablesData = text;
+            contentDiv.textContent = text;
+        }
+    } catch (error) {
+        contentDiv.textContent = `Failed to load environment variables: ${error.message}`;
+        envVariablesData = null;
+    }
+}
+
+// Filter environment variables based on search input
+function filterEnvVariables() {
+    const searchInput = document.getElementById('envSearchInput');
+    const contentDiv = document.getElementById('envContent');
+    const searchTerm = searchInput.value.toLowerCase();
+
+    if (!envVariablesData) {
+        return;
+    }
+
+    if (!searchTerm) {
+        // Show all variables
+        if (typeof envVariablesData === 'object') {
+            const formattedText = Object.entries(envVariablesData)
+                .map(([key, value]) => `${key}=${value}`)
+                .join('\n');
+            contentDiv.textContent = formattedText;
+        } else {
+            contentDiv.textContent = envVariablesData;
+        }
+        return;
+    }
+
+    // Filter based on search term
+    if (typeof envVariablesData === 'object') {
+        const filteredEntries = Object.entries(envVariablesData).filter(([key, value]) => {
+            const line = `${key}=${value}`;
+            return line.toLowerCase().includes(searchTerm);
+        });
+        const formattedText = filteredEntries
+            .map(([key, value]) => `${key}=${value}`)
+            .join('\n');
+        contentDiv.textContent = formattedText;
+    } else {
+        // Fallback for plain text
+        const lines = envVariablesData.split('\n');
+        const filteredLines = lines.filter(line => 
+            line.toLowerCase().includes(searchTerm)
+        );
+        contentDiv.textContent = filteredLines.join('\n');
+    }
+}
+
 // Clear all tab contents
 function clearAllTabs() {
     document.getElementById('overviewContent').innerHTML = 'Please select a target node first';
@@ -601,9 +693,12 @@ function clearAllTabs() {
     document.getElementById('configContent').textContent = 'Please select a target node first';
     document.getElementById('metaContent').textContent = 'Please select a target node first';
     document.getElementById('inferenceContent').textContent = 'Please select a target node first';
+    document.getElementById('envContent').textContent = 'Please select a target node first';
     document.getElementById('loggerInput').value = '';
     document.getElementById('configKeyInput').value = '';
     document.getElementById('configValueInput').value = '';
+    document.getElementById('envSearchInput').value = '';
+    envVariablesData = null;
 }
 
 function transformPath(path) {
@@ -614,4 +709,170 @@ function transformPath(path) {
         return `/proxy2/${proxyNode.name}/proxy2/${currentNode.name}/${path}`;
     }
     return `/proxy2/${currentNode.name}/${path}`;
+}
+
+// Filter nodes by environment variable and show matching proxies
+async function filterNodesByEnv() {
+    const envFilter = document.getElementById('envFilterInput').value.trim();
+    if (!envFilter) {
+        alert('Please enter an environment variable filter (e.g., TAG or TAG=TaijiDS)');
+        return;
+    }
+
+    // Parse filter condition
+    let filterKey, filterValue;
+    const filterParts = envFilter.split('=');
+    
+    if (filterParts.length === 1) {
+        // Only key provided, filter by key existence
+        filterKey = filterParts[0].trim();
+        filterValue = null;
+    } else if (filterParts.length === 2) {
+        // Key=Value provided, filter by exact match
+        filterKey = filterParts[0].trim();
+        filterValue = filterParts[1].trim();
+    } else {
+        alert('Invalid filter format. Please use KEY or KEY=VALUE format (e.g., TAG or TAG=TaijiDS)');
+        return;
+    }
+
+    try {
+        // Show loading indicator
+        const proxySelector = document.getElementById('proxySelector');
+        const targetSelector = document.getElementById('targetSelector');
+        proxySelector.innerHTML = '<option value="">Filtering proxies...</option>';
+        proxySelector.disabled = true;
+        targetSelector.innerHTML = '<option value="">-- Select Target --</option>';
+        targetSelector.disabled = true;
+
+        // Get all proxies
+        const response = await fetch('/api/proxies');
+        const data = await response.json();
+        const allProxies = data.proxies;
+
+        // Check each proxy's nodes for matching environment variables
+        const matchingProxies = new Map(); // Map<proxyName, matchingNodes[]>
+        
+        for (const proxy of allProxies) {
+            try {
+                // Get nodes for this proxy
+                const nodesResponse = await fetch(`/api/proxies/${proxy.name}/nodes`);
+                const nodesData = await nodesResponse.json();
+                const nodes = nodesData.nodes;
+
+                // Check each node's environment variables
+                const matchingNodes = [];
+                const checkPromises = nodes.map(async (node) => {
+                    try {
+                        // Build the path to check env
+                        let envPath;
+                        if (node.proxy_id && proxyNodes[node.proxy_id]) {
+                            const proxyNode = proxyNodes[node.proxy_id];
+                            envPath = `/proxy2/${proxyNode.name}/proxy2/${node.name}/env`;
+                        } else {
+                            envPath = `/proxy2/${node.name}/env`;
+                        }
+
+                        const envResponse = await fetch(envPath);
+                        if (!envResponse.ok) {
+                            console.warn(`Failed to fetch env for node ${node.name}`);
+                            return null;
+                        }
+
+                        const envText = await envResponse.text();
+                        
+                        // Parse JSON response
+                        let envData;
+                        try {
+                            envData = JSON.parse(envText);
+                        } catch (e) {
+                            console.warn(`Failed to parse env JSON for node ${node.name}:`, e);
+                            return null;
+                        }
+                        
+                        // Check if the environment variable matches
+                        if (filterValue === null) {
+                            // Only key provided, check if key exists
+                            if (filterKey in envData) {
+                                return node;
+                            }
+                        } else {
+                            // Key=Value provided, match exact value
+                            if (filterKey in envData && envData[filterKey] === filterValue) {
+                                return node;
+                            }
+                        }
+                        
+                        return null;
+                    } catch (error) {
+                        console.error(`Error checking node ${node.name}:`, error);
+                        return null;
+                    }
+                });
+
+                const results = await Promise.all(checkPromises);
+                const validNodes = results.filter(node => node !== null);
+                
+                if (validNodes.length > 0) {
+                    matchingProxies.set(proxy.name, validNodes);
+                }
+            } catch (error) {
+                console.error(`Error checking proxy ${proxy.name}:`, error);
+            }
+        }
+
+        // Update proxy selector with filtered proxies
+        proxySelector.innerHTML = '<option value="">-- Select Proxy --</option>';
+        proxySelector.disabled = false;
+
+        if (matchingProxies.size === 0) {
+            const filterDesc = filterValue === null ? filterKey : `${filterKey}=${filterValue}`;
+            alert(`No nodes found with ${filterDesc}`);
+        } else {
+            let totalNodes = 0;
+            matchingProxies.forEach((nodes, proxyName) => {
+                const proxy = allProxies.find(p => p.name === proxyName);
+                if (proxy) {
+                    const option = document.createElement('option');
+                    option.value = proxyName;
+                    option.textContent = `${proxy.name} (${nodes.length} matching nodes)`;
+                    option.dataset.matchingNodes = JSON.stringify(nodes);
+                    proxySelector.appendChild(option);
+                    totalNodes += nodes.length;
+                }
+            });
+            
+            const filterDesc = filterValue === null ? filterKey : `${filterKey}=${filterValue}`;
+            alert(`Found ${matchingProxies.size} proxy(ies) with ${totalNodes} matching node(s) for ${filterDesc}`);
+            
+            // Add event listener to load filtered nodes when proxy is selected
+            proxySelector.addEventListener('change', function handleFilteredProxyChange(e) {
+                const selectedOption = e.target.selectedOptions[0];
+                if (selectedOption && selectedOption.dataset.matchingNodes) {
+                    const nodes = JSON.parse(selectedOption.dataset.matchingNodes);
+                    loadTargetNodes(e.target.value, nodes);
+                    // Remove this listener after first use
+                    proxySelector.removeEventListener('change', handleFilteredProxyChange);
+                }
+            }, { once: true });
+        }
+    } catch (error) {
+        console.error('Failed to filter nodes:', error);
+        alert('Failed to filter nodes: ' + error.message);
+        // Restore original proxy list
+        loadProxies();
+    }
+}
+
+// Clear environment filter
+function clearEnvFilter() {
+    document.getElementById('envFilterInput').value = '';
+    
+    // Restore original proxy list
+    loadProxies();
+    
+    // Clear target selector
+    const targetSelector = document.getElementById('targetSelector');
+    targetSelector.innerHTML = '<option value="">-- Select Target --</option>';
+    targetSelector.disabled = true;
 }
