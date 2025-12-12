@@ -24,18 +24,60 @@ class HeartbeatService:
 
     def get_local_ip(self):
         """
-        Get the local IP address of the machine.
+        Get the local IP address of the machine using multiple methods.
+        Falls back through several approaches for maximum reliability.
         """
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        # Method 1: Try UDP socket connection (works when network is available)
         try:
-            # "Connect" to a public IP — just to determine local IP
-            s.connect(("8.8.8.8", 80))
-            return s.getsockname()[0]
-        except Exception:
-            print("Failed to get local IP address. Falling back to loopback address.")
-            return "127.0.0.1"  # Fallback to loopback
-        finally:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.settimeout(0.1)
+            # Use a non-routable address - doesn't actually send packets
+            s.connect(("10.255.255.255", 1))
+            ip = s.getsockname()[0]
             s.close()
+            if not ip.startswith("127."):
+                return ip
+        except Exception:
+            pass
+
+        # Method 2: Try hostname resolution
+        try:
+            hostname = socket.gethostname()
+            ips = socket.gethostbyname_ex(hostname)[2]
+            for ip in ips:
+                if not ip.startswith("127."):
+                    return ip
+        except Exception:
+            pass
+
+        # Method 3: Iterate through network interfaces (platform-specific)
+        try:
+            import platform
+            import subprocess
+
+            if platform.system() == "Darwin":  # macOS
+                result = subprocess.run(
+                    ["ipconfig", "getifaddr", "en0"],
+                    capture_output=True,
+                    text=True,
+                    timeout=2,
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    return result.stdout.strip()
+            elif platform.system() == "Linux":
+                result = subprocess.run(
+                    ["hostname", "-I"],
+                    capture_output=True,
+                    text=True,
+                    timeout=2,
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    return result.stdout.strip().split()[0]
+        except Exception:
+            pass
+
+        print("Failed to get local IP address. Falling back to loopback address.")
+        return "127.0.0.1"
 
     def set_app_config(self, host: str, port: int, target_nodes: list):
         """Set application configuration for heartbeat reporting"""
