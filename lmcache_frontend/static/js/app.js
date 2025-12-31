@@ -2,12 +2,34 @@
 let currentNode = null;
 let currentProxy = null;
 let proxyNodes = {};
+let allProxies = []; // Store all proxies for filtering
+
 // Initialize after DOM is loaded
 window.addEventListener('DOMContentLoaded', () => {
     // Initialize proxy selector
     loadProxies();
 
-    // Proxy selection event
+    // Proxy search input event
+    const proxySearchInput = document.getElementById('proxySearchInput');
+    const proxyDropdown = document.getElementById('proxyDropdown');
+    
+    proxySearchInput.addEventListener('focus', () => {
+        filterProxies();
+        proxyDropdown.classList.add('show');
+    });
+    
+    proxySearchInput.addEventListener('input', () => {
+        filterProxies();
+    });
+    
+    // Close dropdown when clicking outside
+    document.addEventListener('click', (e) => {
+        if (!proxySearchInput.contains(e.target) && !proxyDropdown.contains(e.target)) {
+            proxyDropdown.classList.remove('show');
+        }
+    });
+
+    // Proxy selection event (kept for compatibility)
     document.getElementById('proxySelector').addEventListener('change', (e) => {
         const proxyName = e.target.value;
         if (proxyName) {
@@ -95,6 +117,7 @@ async function loadProxies() {
         selector.innerHTML = '<option value="">-- Select Proxy --</option>';
 
         proxyNodes = {};
+        allProxies = [];
 
         data.proxies.forEach(proxy => {
             const option = document.createElement('option');
@@ -103,10 +126,70 @@ async function loadProxies() {
             selector.appendChild(option);
 
             proxyNodes[proxy.name] = proxy;
+            allProxies.push(proxy);
         });
+        
+        // Initialize dropdown with all proxies
+        filterProxies();
     } catch (error) {
         console.error('Failed to load proxies:', error);
     }
+}
+
+// Filter proxies based on search input
+function filterProxies() {
+    const searchInput = document.getElementById('proxySearchInput');
+    const dropdown = document.getElementById('proxyDropdown');
+    const searchTerm = searchInput.value.toLowerCase();
+    
+    dropdown.innerHTML = '';
+    
+    const filteredProxies = allProxies.filter(proxy => {
+        const proxyText = `${proxy.name} (${proxy.host}:${proxy.port})`.toLowerCase();
+        return proxyText.includes(searchTerm);
+    });
+    
+    if (filteredProxies.length === 0) {
+        const noResultItem = document.createElement('div');
+        noResultItem.className = 'dropdown-item disabled';
+        noResultItem.textContent = 'No matching proxies found';
+        dropdown.appendChild(noResultItem);
+    } else {
+        filteredProxies.forEach(proxy => {
+            const item = document.createElement('a');
+            item.className = 'dropdown-item';
+            item.href = '#';
+            item.textContent = `${proxy.name} (${proxy.host}:${proxy.port})`;
+            item.dataset.proxyName = proxy.name;
+            
+            item.addEventListener('click', (e) => {
+                e.preventDefault();
+                selectProxy(proxy);
+            });
+            
+            dropdown.appendChild(item);
+        });
+    }
+}
+
+// Select a proxy
+function selectProxy(proxy) {
+    const searchInput = document.getElementById('proxySearchInput');
+    const dropdown = document.getElementById('proxyDropdown');
+    const selector = document.getElementById('proxySelector');
+    
+    // Update search input display
+    searchInput.value = `${proxy.name} (${proxy.host}:${proxy.port})`;
+    
+    // Update hidden selector
+    selector.value = proxy.name;
+    
+    // Close dropdown
+    dropdown.classList.remove('show');
+    
+    // Trigger proxy selection
+    currentProxy = proxyNodes[proxy.name];
+    loadTargetNodes(proxy.name);
 }
 
 // Load target nodes for selected proxy
@@ -738,22 +821,26 @@ async function filterNodesByEnv() {
 
     try {
         // Show loading indicator
+        const proxySearchInput = document.getElementById('proxySearchInput');
         const proxySelector = document.getElementById('proxySelector');
         const targetSelector = document.getElementById('targetSelector');
-        proxySelector.innerHTML = '<option value="">Filtering proxies...</option>';
-        proxySelector.disabled = true;
+        const proxyDropdown = document.getElementById('proxyDropdown');
+        
+        proxySearchInput.value = 'Filtering proxies...';
+        proxySearchInput.disabled = true;
+        proxyDropdown.classList.remove('show');
         targetSelector.innerHTML = '<option value="">-- Select Target --</option>';
         targetSelector.disabled = true;
 
         // Get all proxies
         const response = await fetch('/api/proxies');
         const data = await response.json();
-        const allProxies = data.proxies;
+        const fetchedProxies = data.proxies;
 
         // Check each proxy's nodes for matching environment variables
         const matchingProxies = new Map(); // Map<proxyName, matchingNodes[]>
         
-        for (const proxy of allProxies) {
+        for (const proxy of fetchedProxies) {
             try {
                 // Get nodes for this proxy
                 const nodesResponse = await fetch(`/api/proxies/${proxy.name}/nodes`);
@@ -822,39 +909,34 @@ async function filterNodesByEnv() {
         }
 
         // Update proxy selector with filtered proxies
-        proxySelector.innerHTML = '<option value="">-- Select Proxy --</option>';
-        proxySelector.disabled = false;
+        proxySearchInput.value = '';
+        proxySearchInput.disabled = false;
 
         if (matchingProxies.size === 0) {
             const filterDesc = filterValue === null ? filterKey : `${filterKey}=${filterValue}`;
             alert(`No nodes found with ${filterDesc}`);
+            // Restore original proxy list
+            loadProxies();
         } else {
+            // Update global allProxies with filtered results
+            allProxies = [];
             let totalNodes = 0;
+            const proxyNodeMap = new Map(); // Store matching nodes for each proxy
+            
             matchingProxies.forEach((nodes, proxyName) => {
-                const proxy = allProxies.find(p => p.name === proxyName);
+                const proxy = fetchedProxies.find(p => p.name === proxyName);
                 if (proxy) {
-                    const option = document.createElement('option');
-                    option.value = proxyName;
-                    option.textContent = `${proxy.name} (${nodes.length} matching nodes)`;
-                    option.dataset.matchingNodes = JSON.stringify(nodes);
-                    proxySelector.appendChild(option);
+                    allProxies.push(proxy);
+                    proxyNodeMap.set(proxyName, nodes);
                     totalNodes += nodes.length;
                 }
             });
             
+            // Rebuild filtered proxy list
+            filterProxies();
+            
             const filterDesc = filterValue === null ? filterKey : `${filterKey}=${filterValue}`;
             alert(`Found ${matchingProxies.size} proxy(ies) with ${totalNodes} matching node(s) for ${filterDesc}`);
-            
-            // Add event listener to load filtered nodes when proxy is selected
-            proxySelector.addEventListener('change', function handleFilteredProxyChange(e) {
-                const selectedOption = e.target.selectedOptions[0];
-                if (selectedOption && selectedOption.dataset.matchingNodes) {
-                    const nodes = JSON.parse(selectedOption.dataset.matchingNodes);
-                    loadTargetNodes(e.target.value, nodes);
-                    // Remove this listener after first use
-                    proxySelector.removeEventListener('change', handleFilteredProxyChange);
-                }
-            }, { once: true });
         }
     } catch (error) {
         console.error('Failed to filter nodes:', error);
