@@ -10,6 +10,7 @@ HEARTBEAT_DATA = {}
 
 
 @app.route("/lmcache_heartbeat", methods=["GET"])
+@app.route("/heartbeat", methods=["GET"])
 def record_heartbeat():
     api_address = request.args.get("api_address")
     pid = request.args.get("pid", type=int)

@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import json
 import os
+import threading
 from urllib.parse import unquote
 
 import httpx
@@ -96,33 +97,56 @@ async def fetch_all_child_nodes_concurrently(proxy_nodes):
 
 
 async def fetch_nodes_from_supplier(url):
-    """Fetch node information from node supplier"""
+    """Fetch node information from node supplier.
+
+    Each heartbeat entry is treated as a direct target node (leaf),
+    not as a proxy that needs further child-node discovery.  The
+    returned list uses the same proxy-with-nodes structure expected
+    by the rest of the app, but each proxy's ``nodes`` list already
+    contains the node itself so no secondary /api/nodes call is made.
+    """
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.get(url)
             response.raise_for_status()
             data = response.json()
 
-            unique_nodes = set()
+            unique_nodes: dict[str, dict] = {}
             for api_address, info in data.get("processInfos", {}).items():
                 for entity in info.get("lmCacheInfoEntities", []):
-                    # Parse apiAddress to get host and port
-                    url = entity["apiAddress"]
-                    if url.startswith("http://"):
-                        url = url[7:]
-                    host, port = url.split(":")
+                    addr = entity["apiAddress"]
+                    if addr.startswith("http://"):
+                        addr = addr[7:]
+                    host, port = addr.split(":")
                     node_key = f"{host}:{port}"
-                    unique_nodes.add(node_key)
+                    if node_key not in unique_nodes:
+                        unique_nodes[node_key] = {
+                            "host": host,
+                            "port": port,
+                        }
 
-            return [
-                {
-                    "name": f"proxy_{host_port.replace(':', '_')}",
-                    "host": host_port.split(":")[0],
-                    "port": host_port.split(":")[1],
-                    "nodes": [],
+            result = []
+            for node_key, node_info in unique_nodes.items():
+                host = node_info["host"]
+                port = node_info["port"]
+                name = f"proxy_{node_key.replace(':', '_')}"
+                # The heartbeat node is itself the target; add it as a
+                # child so "Select Target" is populated without an extra
+                # /api/nodes round-trip to the lmcache server.
+                child = {
+                    "name": name,
+                    "host": host,
+                    "port": port,
                 }
-                for host_port in unique_nodes
-            ]
+                result.append(
+                    {
+                        "name": name,
+                        "host": host,
+                        "port": port,
+                        "nodes": [child],
+                    }
+                )
+            return result
     except Exception as e:
         print(f"Failed to fetch nodes from supplier: {e}")
         return []
@@ -200,7 +224,6 @@ async def get_all_nodes():
                     "host": node["host"],
                     "port": node["port"],
                     "is_proxy": False,
-                    "proxy_id": proxy["name"],
                 }
             )
 
@@ -330,17 +353,28 @@ async def delete_node(node_name: str):
     "/proxy2/{node_name}/{path:path}",
     methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"],
 )
-async def proxy_request_by_name(request: Request, node_name: str, path: str):
-    """Proxy requests using node name as identifier"""
-    # Find node by name
+async def proxy_request_by_name(
+    request: Request, node_name: str, path: str
+):
+    """Proxy requests using node name as identifier.
+
+    Searches top-level target_nodes first, then child nodes of every
+    proxy, so both direct nodes and supplier-discovered leaf nodes are
+    reachable with a single /proxy2/{name}/{path} call.
+    """
+    # 1. top-level proxy nodes
     node = next((n for n in target_nodes if n["name"] == node_name), None)
+
+    # 2. child nodes of every proxy
     if not node:
-        # Find node from local_proxy
-        proxy_node = next((n for n in target_nodes if n["name"] == "local_proxy"), None)
-        if proxy_node:
+        for proxy in target_nodes:
             node = next(
-                (n for n in proxy_node["nodes"] if n["name"] == node_name), None
+                (n for n in proxy.get("nodes", []) if n["name"] == node_name),
+                None,
             )
+            if node:
+                break
+
     if not node:
         raise HTTPException(
             status_code=404, detail=f"Node with name '{node_name}' not found"
@@ -502,13 +536,13 @@ async def load_nodes_from_supplier(node_supplier_url: str | None = None):
         target_nodes = nodes
         print(f"Loaded {len(target_nodes)} proxy nodes from supplier")
 
-        # Get child nodes for each proxy concurrently
-        print("Fetching child nodes for each proxy concurrently...")
-        target_nodes = await fetch_all_child_nodes_concurrently(target_nodes)
-        
-        # Print summary
+        # Child nodes are already populated by fetch_nodes_from_supplier;
+        # no secondary /api/nodes round-trip is needed.
         for proxy in target_nodes:
-            print(f"Proxy {proxy['name']} loaded {len(proxy['nodes'])} child nodes")
+            print(
+                f"Proxy {proxy['name']} loaded"
+                f" {len(proxy['nodes'])} child nodes"
+            )
         return True
     else:
         print("Warning: No nodes loaded from supplier")
@@ -701,6 +735,12 @@ def main():
         choices=["critical", "error", "warning", "warn", "info", "debug", "trace"],
         help="Uvicorn log level, default: warn",
     )
+    parser.add_argument(
+        "--no-http",
+        action="store_true",
+        default=False,
+        help="Disable HTTP server startup (heartbeat still runs)",
+    )
 
     args = parser.parse_args()
 
@@ -728,6 +768,16 @@ def main():
         )
     else:
         print("Heartbeat URL not configured, heartbeat disabled")
+
+    if args.no_http:
+        print("HTTP server disabled (--no-http), running heartbeat only")
+        try:
+            stop_event = threading.Event()
+            stop_event.wait()
+        finally:
+            print("Shutting down application...")
+            heartbeat_service.stop()
+        return
 
     try:
         uvicorn.run(app, host=args.host, port=args.port, log_level=args.log_level)

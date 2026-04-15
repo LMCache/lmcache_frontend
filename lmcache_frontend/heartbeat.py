@@ -122,29 +122,35 @@ class HeartbeatService:
             return False
 
     async def _get_version_from_nodes(self):
-        """Get version from target nodes"""
+        """Get version from target nodes by querying each node directly."""
         if not self.target_nodes:
             return None
 
         for proxy_node in self.target_nodes:
             for node in proxy_node["nodes"]:
                 try:
+                    url = "http://%s:%s/version" % (
+                        node["host"],
+                        node["port"],
+                    )
                     async with httpx.AsyncClient(timeout=5.0) as client:
-                        response = await client.get(
-                            f"http://localhost:{self.app_port}/proxy2/{proxy_node['name']}/proxy2/{node['name']}/version"
-                        )
+                        response = await client.get(url)
 
                     if response.status_code == 200 and response.content:
                         content = response.content.decode("utf-8").strip()
-                        # Try to remove surrounding quotes
-                        if (content.startswith('"') and content.endswith('"')) or (
+                        if (
+                            content.startswith('"') and content.endswith('"')
+                        ) or (
                             content.startswith("'") and content.endswith("'")
                         ):
                             content = content[1:-1]
                         return content
 
                 except Exception as e:
-                    print(f"Failed to get version from node {node['name']}: {str(e)}")
+                    print(
+                        "Failed to get version from node %s: %s"
+                        % (node["name"], str(e))
+                    )
                     continue
 
         return None
