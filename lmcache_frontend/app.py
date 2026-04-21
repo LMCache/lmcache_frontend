@@ -96,14 +96,43 @@ async def fetch_all_child_nodes_concurrently(proxy_nodes):
     return proxy_nodes
 
 
+async def _fetch_child_nodes_from_api_nodes(
+    host: str, port: str, proxy_name: str
+) -> list:
+    """Try to fetch child nodes via /api/nodes from a multiProcess server.
+
+    Returns a non-empty list of child node dicts when the target is a
+    multiProcess lmcache server that exposes /api/nodes.  Returns an
+    empty list for inProcess nodes (connection error or no children).
+    """
+    try:
+        url = "http://%s:%s/api/nodes" % (host, port)
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(url)
+            response.raise_for_status()
+        nodes_data = response.json().get("nodes", [])
+        children = []
+        for node in nodes_data:
+            if node.get("children"):
+                for child in node["children"]:
+                    child["proxy_id"] = proxy_name
+                    children.append(child)
+            else:
+                node["proxy_id"] = proxy_name
+                children.append(node)
+        return children
+    except Exception:
+        return []
+
+
 async def fetch_nodes_from_supplier(url):
     """Fetch node information from node supplier.
 
-    Each heartbeat entry is treated as a direct target node (leaf),
-    not as a proxy that needs further child-node discovery.  The
-    returned list uses the same proxy-with-nodes structure expected
-    by the rest of the app, but each proxy's ``nodes`` list already
-    contains the node itself so no secondary /api/nodes call is made.
+    For each discovered node, attempt to retrieve its child nodes via
+    ``/api/nodes`` (multiProcess lmcache server).  If that call
+    succeeds and returns children, those children are used as the
+    ``nodes`` list (multiProcess mode).  Otherwise the node itself is
+    used as the sole child (inProcess / leaf mode).
     """
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -118,32 +147,47 @@ async def fetch_nodes_from_supplier(url):
                     if addr.startswith("http://"):
                         addr = addr[7:]
                     host, port = addr.split(":")
-                    node_key = f"{host}:{port}"
+                    node_key = "%s:%s" % (host, port)
                     if node_key not in unique_nodes:
                         unique_nodes[node_key] = {
                             "host": host,
                             "port": port,
                         }
 
-            result = []
-            for node_key, node_info in unique_nodes.items():
-                host = node_info["host"]
-                port = node_info["port"]
-                name = f"proxy_{node_key.replace(':', '_')}"
-                # The heartbeat node is itself the target; add it as a
-                # child so "Select Target" is populated without an extra
-                # /api/nodes round-trip to the lmcache server.
-                child = {
-                    "name": name,
-                    "host": host,
-                    "port": port,
+            # Fetch child nodes concurrently for all discovered nodes.
+            proxy_list = [
+                {
+                    "name": "proxy_%s" % node_key.replace(":", "_"),
+                    "host": info["host"],
+                    "port": info["port"],
                 }
+                for node_key, info in unique_nodes.items()
+            ]
+            child_tasks = [
+                _fetch_child_nodes_from_api_nodes(p["host"], p["port"], p["name"])
+                for p in proxy_list
+            ]
+            child_results = await asyncio.gather(*child_tasks, return_exceptions=True)
+
+            result = []
+            for proxy, children in zip(proxy_list, child_results):
+                if isinstance(children, Exception) or not children:
+                    # inProcess mode: node itself is the leaf target.
+                    leaf = {
+                        "name": proxy["name"],
+                        "host": proxy["host"],
+                        "port": proxy["port"],
+                    }
+                    nodes = [leaf]
+                else:
+                    # multiProcess mode: use discovered child nodes.
+                    nodes = children
                 result.append(
                     {
-                        "name": name,
-                        "host": host,
-                        "port": port,
-                        "nodes": [child],
+                        "name": proxy["name"],
+                        "host": proxy["host"],
+                        "port": proxy["port"],
+                        "nodes": nodes,
                     }
                 )
             return result
@@ -219,11 +263,12 @@ async def get_all_nodes():
         for node in proxy.get("nodes", []):
             proxy_node["children"].append(
                 {
-                    "id": f"node_{node['name']}",
+                    "id": "node_%s" % node["name"],
                     "name": node["name"],
                     "host": node["host"],
                     "port": node["port"],
                     "is_proxy": False,
+                    "proxy_id": proxy["name"],
                 }
             )
 
