@@ -98,7 +98,7 @@ def _extra_cfg(config: dict) -> dict:
 
 config = _parse_mp_config()
 extra = _extra_cfg(config)
-http_cfg = config.get("http_frontend_config", {})
+http_cfg = config.get("http_config") or config.get("http_frontend_config") or {}
 
 print("[mp_frontend] config keys: %s" % list(config.keys()))
 print("[mp_frontend] extra_cfg: %s" % json.dumps(extra, default=str))
