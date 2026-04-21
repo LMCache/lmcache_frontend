@@ -459,8 +459,22 @@ async function loadOverview() {
     if (!currentNode) return;
 
     const contentDiv = document.getElementById('overviewContent');
-    contentDiv.innerHTML = '<div class="spinner-border" role="status"><span class="visually-hidden">Loading...</span></div>';
+    contentDiv.innerHTML = '<div class="spinner-border" role="status">'
+        + '<span class="visually-hidden">Loading...</span></div>';
 
+    // Try multiProcess /api/status first; fall back to basic info.
+    try {
+        const statusResp = await fetch(transformPath('api/status'));
+        if (statusResp.ok) {
+            const statusData = await statusResp.json();
+            renderMpOverview(contentDiv, statusData);
+            return;
+        }
+    } catch (_) {
+        // not a multiProcess node – fall through
+    }
+
+    // Basic overview for inProcess / legacy nodes
     try {
         const response = await fetch(transformPath('version'));
         const versionInfo = await response.text();
@@ -469,21 +483,230 @@ async function loadOverview() {
             <div class="card">
                 <div class="card-body">
                     <h5 class="card-title">Node Information</h5>
-                    <p><strong>Name:</strong>${currentNode.name}</p>
-                    <p><strong>Host:</strong>${currentNode.host}</p>
-                    <p><strong>Port:</strong>${currentNode.port}</p>
+                    <p><strong>Name:</strong> ${escapeHtmlStr(currentNode.name)}</p>
+                    <p><strong>Host:</strong> ${escapeHtmlStr(currentNode.host)}</p>
+                    <p><strong>Port:</strong> ${escapeHtmlStr(String(currentNode.port))}</p>
                 </div>
             </div>
             <div class="card mt-3">
                 <div class="card-body">
                     <h5 class="card-title">Version Information</h5>
-                    <pre>${versionInfo}</pre>
+                    <pre>${escapeHtmlStr(versionInfo)}</pre>
                 </div>
             </div>
         `;
     } catch (error) {
-        contentDiv.innerHTML = `<div class="alert alert-danger">Failed to load overview: ${error.message}</div>`;
+        contentDiv.innerHTML = '<div class="alert alert-danger">'
+            + 'Failed to load overview: '
+            + escapeHtmlStr(error.message) + '</div>';
     }
+}
+
+// ---------------------------------------------------------------
+// MultiProcess Overview renderer (ported from mp_app.js)
+// ---------------------------------------------------------------
+function renderMpOverview(container, data) {
+    var isHealthy = data.is_healthy;
+    var healthClass = isHealthy ? "healthy" : "unhealthy";
+    var healthText  = isHealthy ? "Healthy" : "Unhealthy";
+
+    var sm = data.storage_manager || {};
+    var l1 = sm.l1_manager || {};
+    var l1TotalBytes = l1.memory_total_bytes || 0;
+    var l1UsedBytes  = l1.memory_used_bytes  || 0;
+    var l1Pct = l1TotalBytes > 0
+        ? Math.round((l1UsedBytes / l1TotalBytes) * 100) : 0;
+    var l1Objects = l1.total_object_count || 0;
+    var barColor = l1Pct > 90 ? "#dc3545"
+        : l1Pct > 70 ? "#ffc107" : "#198754";
+
+    var gpuIds      = data.registered_gpu_ids || [];
+    var sessions    = data.active_sessions    || 0;
+    var engineType  = data.engine_type        || "Unknown";
+    var chunkSize   = data.chunk_size         || "N/A";
+    var hashAlgo    = data.hash_algorithm     || "N/A";
+    var numAdapters = sm.num_l2_adapters      || 0;
+
+    var html = '<div class="row">';
+
+    // Row 1: Health / Engine / Sessions
+    html += '<div class="col-md-4 mb-3"><div class="card stat-card">'
+        + '<div class="card-body"><div class="stat-label">Health</div>'
+        + '<div class="mt-2"><span class="health-dot ' + healthClass + '"></span>'
+        + '<span class="fs-4 fw-bold">' + healthText + '</span>'
+        + '</div></div></div></div>';
+
+    html += '<div class="col-md-4 mb-3"><div class="card stat-card">'
+        + '<div class="card-body"><div class="stat-label">Engine Type</div>'
+        + '<div class="stat-value fs-4">' + escapeHtmlStr(engineType) + '</div>'
+        + '<small class="text-muted">Chunk: ' + escapeHtmlStr(String(chunkSize))
+        + ' | Hash: ' + escapeHtmlStr(hashAlgo) + '</small>'
+        + '</div></div></div>';
+
+    html += '<div class="col-md-4 mb-3"><div class="card stat-card">'
+        + '<div class="card-body"><div class="stat-label">Active Sessions</div>'
+        + '<div class="stat-value">' + sessions + '</div>'
+        + '</div></div></div>';
+
+    // Row 2: GPU / L1 / L2
+    html += '<div class="col-md-4 mb-3"><div class="card stat-card">'
+        + '<div class="card-body"><div class="stat-label">GPU Workers</div>'
+        + '<div class="stat-value">' + gpuIds.length + '</div>'
+        + '<small class="text-muted">IDs: '
+        + escapeHtmlStr(gpuIds.length > 0 ? gpuIds.join(", ") : "none")
+        + '</small></div></div></div>';
+
+    html += '<div class="col-md-4 mb-3"><div class="card stat-card">'
+        + '<div class="card-body"><div class="stat-label">L1 Cache Usage</div>'
+        + '<div class="memory-bar mt-2"><div class="bar-fill" style="width:'
+        + l1Pct + '%;background-color:' + barColor + '">' + l1Pct + '%</div></div>'
+        + '<small class="text-muted mt-1 d-block">'
+        + formatBytesStr(l1UsedBytes) + ' / ' + formatBytesStr(l1TotalBytes)
+        + ' (' + l1Objects + ' objects)</small>'
+        + '</div></div></div>';
+
+    html += '<div class="col-md-4 mb-3"><div class="card stat-card">'
+        + '<div class="card-body"><div class="stat-label">L2 Adapters</div>'
+        + '<div class="stat-value">' + numAdapters + '</div>'
+        + '</div></div></div>';
+
+    // Row 3: Pending & Prefetch
+    var pendingLookups  = data.pending_lookup_count    || 0;
+    var nextJobId       = data.next_prefetch_job_id    || 0;
+    var prefetchJobIds  = data.prefetch_job_ids        || [];
+    var pendingReqIds   = data.pending_request_ids     || [];
+
+    html += '<div class="col-12 mt-2 mb-2"><h5 class="text-muted">'
+        + '<i class="bi bi-hourglass-split"></i> Pending &amp; Prefetch</h5></div>';
+
+    html += '<div class="col-md-4 mb-3"><div class="card stat-card">'
+        + '<div class="card-body"><div class="stat-label">Active Prefetch Jobs</div>'
+        + '<div class="stat-value">' + prefetchJobIds.length + '</div>'
+        + '<small class="text-muted">next ID: ' + nextJobId;
+    if (prefetchJobIds.length > 0) {
+        html += ' &middot; IDs: '
+            + escapeHtmlStr(prefetchJobIds.slice(0, 5).join(", "));
+        if (prefetchJobIds.length > 5) {
+            html += ' +' + (prefetchJobIds.length - 5) + ' more';
+        }
+    }
+    html += '</small></div></div></div>';
+
+    html += '<div class="col-md-4 mb-3"><div class="card stat-card">'
+        + '<div class="card-body"><div class="stat-label">Pending Lookups</div>'
+        + '<div class="stat-value">' + pendingLookups + '</div>'
+        + '</div></div></div>';
+
+    html += '<div class="col-md-4 mb-3"><div class="card stat-card">'
+        + '<div class="card-body"><div class="stat-label">Pending Requests</div>'
+        + '<div class="stat-value">' + pendingReqIds.length + '</div>';
+    if (pendingReqIds.length > 0) {
+        html += '<small class="text-muted">'
+            + escapeHtmlStr(pendingReqIds.slice(0, 3).join(", "));
+        if (pendingReqIds.length > 3) {
+            html += ' +' + (pendingReqIds.length - 3) + ' more';
+        }
+        html += '</small>';
+    }
+    html += '</div></div></div>';
+
+    // Row 4: Periodic Threads summary
+    var pt       = data.periodic_threads || {};
+    var ptTotal   = pt.total_count   || 0;
+    var ptRunning = pt.running_count || 0;
+    var ptActive  = pt.active_count  || 0;
+
+    if (ptTotal > 0) {
+        html += '<div class="col-12 mt-2 mb-2"><h5 class="text-muted">'
+            + '<i class="bi bi-arrow-repeat"></i> Periodic Threads</h5></div>';
+
+        html += '<div class="col-md-4 mb-3"><div class="card stat-card">'
+            + '<div class="card-body"><div class="stat-label">Registered</div>'
+            + '<div class="stat-value">' + ptTotal + '</div>'
+            + '</div></div></div>';
+
+        var runColor = ptRunning === ptTotal ? "#198754" : "#ffc107";
+        html += '<div class="col-md-4 mb-3"><div class="card stat-card">'
+            + '<div class="card-body"><div class="stat-label">Running</div>'
+            + '<div class="stat-value" style="color:' + runColor + '">'
+            + ptRunning + ' / ' + ptTotal + '</div>'
+            + '</div></div></div>';
+
+        var actColor = ptActive === ptRunning ? "#198754" : "#dc3545";
+        html += '<div class="col-md-4 mb-3"><div class="card stat-card">'
+            + '<div class="card-body"><div class="stat-label">Active</div>'
+            + '<div class="stat-value" style="color:' + actColor + '">'
+            + ptActive + ' / ' + ptRunning + '</div>'
+            + '</div></div></div>';
+    }
+
+    // Row 5: Hit Statistics
+    html += renderMpHitStats(data.hit_stats);
+
+    html += '</div>'; // close .row
+    container.innerHTML = html;
+}
+
+function renderMpHitStats(stats) {
+    if (!stats) return "";
+
+    var hitRate  = stats.hit_rate || 0;
+    var hitPct   = Math.round(hitRate * 100);
+    var hitColor = hitPct >= 80 ? "#198754"
+        : hitPct >= 50 ? "#ffc107" : "#dc3545";
+
+    var totalReqs       = stats.total_requests        || 0;
+    var totalTokens     = stats.total_tokens          || 0;
+    var retrievedTokens = stats.total_retrieved_tokens || 0;
+
+    var html = '<div class="col-12 mt-2 mb-2"><h5 class="text-muted">'
+        + '<i class="bi bi-bullseye"></i> Hit Statistics</h5></div>';
+
+    html += '<div class="col-md-4 mb-3"><div class="card stat-card">'
+        + '<div class="card-body"><div class="stat-label">GPU Hit Rate</div>'
+        + '<div class="stat-value" style="color:' + hitColor + '">'
+        + hitPct + '%</div>'
+        + '<div class="memory-bar mt-2"><div class="bar-fill" style="width:'
+        + hitPct + '%;background-color:' + hitColor + '">' + hitPct + '%</div></div>'
+        + '<small class="text-muted mt-1 d-block">'
+        + formatTokenCountStr(retrievedTokens) + ' / '
+        + formatTokenCountStr(totalTokens) + ' tokens</small>'
+        + '</div></div></div>';
+
+    html += '<div class="col-md-4 mb-3"><div class="card stat-card">'
+        + '<div class="card-body"><div class="stat-label">Total Requests</div>'
+        + '<div class="stat-value">' + totalReqs + '</div>'
+        + '<small class="text-muted">'
+        + formatTokenCountStr(totalTokens) + ' tokens total</small>'
+        + '</div></div></div>';
+
+    html += '<div class="col-md-4 mb-3"><div class="card stat-card">'
+        + '<div class="card-body"><div class="stat-label">GPU Retrieved</div>'
+        + '<div class="stat-value">'
+        + formatTokenCountStr(retrievedTokens) + '</div>'
+        + '<small class="text-muted">tokens written to GPU</small>'
+        + '</div></div></div>';
+
+    return html;
+}
+
+function formatBytesStr(bytes) {
+    if (bytes >= 1073741824) return (bytes / 1073741824).toFixed(2) + " GB";
+    if (bytes >= 1048576)    return (bytes / 1048576).toFixed(1)    + " MB";
+    if (bytes >= 1024)       return (bytes / 1024).toFixed(1)       + " KB";
+    return bytes + " B";
+}
+
+function formatTokenCountStr(count) {
+    if (count >= 1000000) return (count / 1000000).toFixed(1) + "M";
+    if (count >= 1000)    return (count / 1000).toFixed(1)    + "K";
+    return String(count);
+}
+
+function escapeHtmlStr(str) {
+    var div = document.createElement("div");
+    div.appendChild(document.createTextNode(str));
+    return div.innerHTML;
 }
 
 // Load metrics information
@@ -786,8 +1009,14 @@ function clearAllTabs() {
 
 function transformPath(path) {
     if (!currentNode) return path;
-    
-    if (currentNode.proxy_id && proxyNodes[currentNode.proxy_id]) {
+
+    // When proxy_id equals the node's own name the node IS the proxy
+    // (multiProcess child node) – use a single proxy2 hop.
+    if (
+        currentNode.proxy_id
+        && proxyNodes[currentNode.proxy_id]
+        && currentNode.proxy_id !== currentNode.name
+    ) {
         const proxyNode = proxyNodes[currentNode.proxy_id];
         return `/proxy2/${proxyNode.name}/proxy2/${currentNode.name}/${path}`;
     }

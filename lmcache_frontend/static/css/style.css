@@ -134,8 +134,57 @@ pre {
     background-color: #e9ecef;
 }
 
-#proxyDropdown .dropdown-item.disabled {
-    color: #6c757d;
-    pointer-events: none;
-    background-color: transparent;
+
+/* MultiProcess Overview card styles */
+.stat-card {
+    border: 1px solid #dee2e6;
+    border-radius: 0.5rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,.08);
+    margin-top: 0;
 }
+
+.stat-label {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #6c757d;
+    font-weight: 600;
+}
+
+.stat-value {
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1.2;
+}
+
+.health-dot {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    margin-right: 6px;
+    vertical-align: middle;
+}
+
+.health-dot.healthy   { background-color: #198754; }
+.health-dot.unhealthy { background-color: #dc3545; }
+
+.memory-bar {
+    height: 18px;
+    background-color: #e9ecef;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.memory-bar .bar-fill {
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.7rem;
+    color: #fff;
+    font-weight: 600;
+    min-width: 2rem;
+    transition: width 0.4s ease;
+}
+
