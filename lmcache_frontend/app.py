@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import json
 import os
+import threading
 from urllib.parse import unquote
 
 import httpx
@@ -95,34 +96,101 @@ async def fetch_all_child_nodes_concurrently(proxy_nodes):
     return proxy_nodes
 
 
+async def _fetch_child_nodes_from_api_nodes(
+    host: str, port: str, proxy_name: str
+) -> list:
+    """Try to fetch child nodes via /api/nodes from a multiProcess server.
+
+    Returns a non-empty list of child node dicts when the target is a
+    multiProcess lmcache server that exposes /api/nodes.  Returns an
+    empty list for inProcess nodes (connection error or no children).
+    """
+    try:
+        url = "http://%s:%s/api/nodes" % (host, port)
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(url)
+            response.raise_for_status()
+        nodes_data = response.json().get("nodes", [])
+        children = []
+        for node in nodes_data:
+            if node.get("children"):
+                for child in node["children"]:
+                    child["proxy_id"] = proxy_name
+                    children.append(child)
+            else:
+                node["proxy_id"] = proxy_name
+                children.append(node)
+        return children
+    except Exception:
+        return []
+
+
 async def fetch_nodes_from_supplier(url):
-    """Fetch node information from node supplier"""
+    """Fetch node information from node supplier.
+
+    For each discovered node, attempt to retrieve its child nodes via
+    ``/api/nodes`` (multiProcess lmcache server).  If that call
+    succeeds and returns children, those children are used as the
+    ``nodes`` list (multiProcess mode).  Otherwise the node itself is
+    used as the sole child (inProcess / leaf mode).
+    """
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.get(url)
             response.raise_for_status()
             data = response.json()
 
-            unique_nodes = set()
+            unique_nodes: dict[str, dict] = {}
             for api_address, info in data.get("processInfos", {}).items():
                 for entity in info.get("lmCacheInfoEntities", []):
-                    # Parse apiAddress to get host and port
-                    url = entity["apiAddress"]
-                    if url.startswith("http://"):
-                        url = url[7:]
-                    host, port = url.split(":")
-                    node_key = f"{host}:{port}"
-                    unique_nodes.add(node_key)
+                    addr = entity["apiAddress"]
+                    if addr.startswith("http://"):
+                        addr = addr[7:]
+                    host, port = addr.split(":")
+                    node_key = "%s:%s" % (host, port)
+                    if node_key not in unique_nodes:
+                        unique_nodes[node_key] = {
+                            "host": host,
+                            "port": port,
+                        }
 
-            return [
+            # Fetch child nodes concurrently for all discovered nodes.
+            proxy_list = [
                 {
-                    "name": f"proxy_{host_port.replace(':', '_')}",
-                    "host": host_port.split(":")[0],
-                    "port": host_port.split(":")[1],
-                    "nodes": [],
+                    "name": "proxy_%s" % node_key.replace(":", "_"),
+                    "host": info["host"],
+                    "port": info["port"],
                 }
-                for host_port in unique_nodes
+                for node_key, info in unique_nodes.items()
             ]
+            child_tasks = [
+                _fetch_child_nodes_from_api_nodes(p["host"], p["port"], p["name"])
+                for p in proxy_list
+            ]
+            child_results = await asyncio.gather(*child_tasks, return_exceptions=True)
+
+            result = []
+            for proxy, children in zip(proxy_list, child_results):
+                if isinstance(children, Exception) or not children:
+                    # inProcess mode: node itself is the leaf target.
+                    leaf = {
+                        "name": proxy["name"],
+                        "host": proxy["host"],
+                        "port": proxy["port"],
+                    }
+                    nodes = [leaf]
+                else:
+                    # multiProcess mode: use discovered child nodes.
+                    nodes = children
+                result.append(
+                    {
+                        "name": proxy["name"],
+                        "host": proxy["host"],
+                        "port": proxy["port"],
+                        "nodes": nodes,
+                    }
+                )
+            return result
     except Exception as e:
         print(f"Failed to fetch nodes from supplier: {e}")
         return []
@@ -195,7 +263,7 @@ async def get_all_nodes():
         for node in proxy.get("nodes", []):
             proxy_node["children"].append(
                 {
-                    "id": f"node_{node['name']}",
+                    "id": "node_%s" % node["name"],
                     "name": node["name"],
                     "host": node["host"],
                     "port": node["port"],
@@ -330,17 +398,28 @@ async def delete_node(node_name: str):
     "/proxy2/{node_name}/{path:path}",
     methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"],
 )
-async def proxy_request_by_name(request: Request, node_name: str, path: str):
-    """Proxy requests using node name as identifier"""
-    # Find node by name
+async def proxy_request_by_name(
+    request: Request, node_name: str, path: str
+):
+    """Proxy requests using node name as identifier.
+
+    Searches top-level target_nodes first, then child nodes of every
+    proxy, so both direct nodes and supplier-discovered leaf nodes are
+    reachable with a single /proxy2/{name}/{path} call.
+    """
+    # 1. top-level proxy nodes
     node = next((n for n in target_nodes if n["name"] == node_name), None)
+
+    # 2. child nodes of every proxy
     if not node:
-        # Find node from local_proxy
-        proxy_node = next((n for n in target_nodes if n["name"] == "local_proxy"), None)
-        if proxy_node:
+        for proxy in target_nodes:
             node = next(
-                (n for n in proxy_node["nodes"] if n["name"] == node_name), None
+                (n for n in proxy.get("nodes", []) if n["name"] == node_name),
+                None,
             )
+            if node:
+                break
+
     if not node:
         raise HTTPException(
             status_code=404, detail=f"Node with name '{node_name}' not found"
@@ -502,13 +581,13 @@ async def load_nodes_from_supplier(node_supplier_url: str | None = None):
         target_nodes = nodes
         print(f"Loaded {len(target_nodes)} proxy nodes from supplier")
 
-        # Get child nodes for each proxy concurrently
-        print("Fetching child nodes for each proxy concurrently...")
-        target_nodes = await fetch_all_child_nodes_concurrently(target_nodes)
-        
-        # Print summary
+        # Child nodes are already populated by fetch_nodes_from_supplier;
+        # no secondary /api/nodes round-trip is needed.
         for proxy in target_nodes:
-            print(f"Proxy {proxy['name']} loaded {len(proxy['nodes'])} child nodes")
+            print(
+                f"Proxy {proxy['name']} loaded"
+                f" {len(proxy['nodes'])} child nodes"
+            )
         return True
     else:
         print("Warning: No nodes loaded from supplier")
@@ -701,6 +780,12 @@ def main():
         choices=["critical", "error", "warning", "warn", "info", "debug", "trace"],
         help="Uvicorn log level, default: warn",
     )
+    parser.add_argument(
+        "--no-http",
+        action="store_true",
+        default=False,
+        help="Disable HTTP server startup (heartbeat still runs)",
+    )
 
     args = parser.parse_args()
 
@@ -728,6 +813,16 @@ def main():
         )
     else:
         print("Heartbeat URL not configured, heartbeat disabled")
+
+    if args.no_http:
+        print("HTTP server disabled (--no-http), running heartbeat only")
+        try:
+            stop_event = threading.Event()
+            stop_event.wait()
+        finally:
+            print("Shutting down application...")
+            heartbeat_service.stop()
+        return
 
     try:
         uvicorn.run(app, host=args.host, port=args.port, log_level=args.log_level)
